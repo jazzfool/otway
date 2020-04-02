@@ -1,0 +1,13 @@
+[package]
+name = "otway"
+version = "0.1.0"
+authors = ["jazzfool <saveuselon@gmail.com>"]
+edition = "2018"
+
+[features]
+default = ["kit", "themes"]
+kit = []
+themes = []
+
+[dependencies]
+reclutch = { git = "https://github.com/jazzfool/reclutch" }

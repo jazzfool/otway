@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.cargoFeatures.features": [
+        "kit"
+    ]
+}
