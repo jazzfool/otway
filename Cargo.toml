@@ -5,9 +5,12 @@ authors = ["jazzfool <saveuselon@gmail.com>"]
 edition = "2018"
 
 [features]
-default = ["kit", "themes"]
+default = ["kit", "themes", "app"]
 kit = []
 themes = []
+app = ["glutin", "reclutch/skia"]
 
 [dependencies]
 reclutch = { git = "https://github.com/jazzfool/reclutch" }
+glutin = { version = "0.24", optional = true }
+thiserror = "1.0"
