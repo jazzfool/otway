@@ -9,31 +9,30 @@ The `view` module aims to be a high-level idiomatic widget type;
 ```rust
 type CounterState = i32;
 
-fn counter<T: 'static>(parent: ui::CommonRef, aux: ui::Aux<T>) -> view::View<T, CounterState> {
+fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::View<T, CounterState> {
     let mut view = view::View::new(parent, /* CounterState: */ 0);
 
     let layout = view.child(kit::VStack::new, aux);
 
     let (count_up, count_label, count_down) =
         (
+            // these are still children of `view`, not `layout`.
             view.lay(kit::Button::new, aux, &layout, None),
             view.lay(kit::Label::new, aux, &layout, None),
             view.lay(kit::Button::new, aux, &layout, None)
         );
 
     view.handle(
-        view.get(count_up).evq_mut(),
         "",
-        UnboundQueueHandler::new().on("press", |view, _, _| {
+        QueueHandler::new(view.get(count_up).evq()).on("press", |view, _, _| {
             view.set_state(|state| { *state += 1; });
         })
     );
 
     view.handle(
-        view.get_mut(count_up).evq_mut(),
         "",
-        UnboundQueueHandler::new().on("press", |view, _, _| {
-            view.set_state(|state| { *state -= 1; })
+        QueueHandler::new(view.get(count_down).evq().on("press", |view, _, _| {
+            view.set_state(|state| { *state -= 1; });
         })
     );
 
@@ -42,7 +41,7 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: ui::Aux<T>) -> view::View<T, 
     });
 
     // invoke state_changed to initialize
-    view.set_state(||());
+    view.set_state(|| {});
 
     view
 }
