@@ -31,7 +31,7 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::Vie
 
     view.handle(
         "",
-        QueueHandler::new(view.get(count_down).evq().on("press", |view, _, _| {
+        QueueHandler::new(view.get(count_down).evq()).on("press", |view, _, _| {
             view.set_state(|state| { *state -= 1; });
         })
     );
