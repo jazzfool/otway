@@ -1,10 +1,13 @@
 use otway::{
-    kit,
+    app, theme,
     ui::{self, view::View},
 };
 
-fn counter(parent: ui::CommonRef, aux: &mut ui::Aux<()>) -> View<(), i32> {
-    let mut view = View::new(parent, 0);
+type Aux = app::AppAux<()>;
+type AuxType = app::AppData<()>;
+
+fn counter(parent: ui::CommonRef, _aux: &mut Aux) -> View<AuxType, i32> {
+    let view = View::new(parent, 0);
 
     // let layout = view.child(kit::VStack::new, aux);
 
@@ -13,4 +16,12 @@ fn counter(parent: ui::CommonRef, aux: &mut ui::Aux<()>) -> View<(), i32> {
     view
 }
 
-fn main() {}
+fn main() -> Result<(), app::AppError> {
+    let mut app = app::App::new(
+        counter,
+        Default::default(),
+        theme::flat::FlatTheme::new(),
+        Default::default(),
+    );
+    app.run()
+}

@@ -22,6 +22,11 @@ pub struct Aux<T: 'static> {
 pub struct CommonRef(Rc<RefCell<Common>>);
 
 impl CommonRef {
+    /// Creates a new `CommonRef` without any parent.
+    pub fn root() -> Self {
+        CommonRef(Rc::new(RefCell::new(Common::root())))
+    }
+
     /// Creates a new `CommonRef` as an implied child of a `parent`.
     #[allow(clippy::wrong_self_convention)]
     #[inline(always)]
@@ -54,42 +59,54 @@ impl CommonRef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Common {
     rect: gfx::Rect,
-    parent: CommonRef,
+    parent: Option<CommonRef>,
 }
 
 impl Common {
+    /// Creates a new `Common` as an implied root.
+    pub fn root() -> Self {
+        Common {
+            rect: Default::default(),
+            parent: None,
+        }
+    }
+
     /// Creates a new `Common` as an implied child of a `parent`.
     pub fn new(parent: CommonRef) -> Self {
         Common {
             rect: Default::default(),
-            parent,
+            parent: Some(parent),
         }
     }
 
     /// Changes the widget rectangle.
+    #[inline(always)]
     pub fn set_rect(&mut self, rect: gfx::Rect) {
         self.rect = rect;
     }
 
     /// Returns the widget rectangle.
+    #[inline(always)]
     pub fn rect(&self) -> gfx::Rect {
         self.rect
     }
 
-    /// Returns a `Ref` to the parent `Common`.
-    pub fn parent(&self) -> Ref<'_, Common> {
-        self.parent.get()
+    /// Returns a `Ref` to the parent `Common`, if there is one.
+    #[inline(always)]
+    pub fn parent(&self) -> Option<Ref<'_, Common>> {
+        Some(self.parent.as_ref()?.get())
     }
 
-    /// Returns a `RefMut` to the parent `Common`.
-    pub fn parent_mut(&mut self) -> RefMut<'_, Common> {
-        self.parent.get_mut()
+    /// Returns a `RefMut` to the parent `Common`, if there is one.
+    #[inline(always)]
+    pub fn parent_mut(&mut self) -> Option<RefMut<'_, Common>> {
+        Some(self.parent.as_mut()?.get_mut())
     }
 }
 
 /// UI element trait, viewed as an extension of `Widget`.
 pub trait Element: Widget + AnyElement {
-    fn common(&self) -> CommonRef;
+    fn common(&self) -> &CommonRef;
 }
 
 /// Conversions for `Element`s, from `Self` to various forms of `std::any::Any`.

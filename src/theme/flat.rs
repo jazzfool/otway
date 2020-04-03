@@ -1,14 +1,20 @@
 use {
-    crate::{kit, theme, ui},
+    crate::{kit, theme::*, ui},
     reclutch::display as gfx,
 };
 
 pub struct FlatTheme {}
 
-impl<T: 'static> theme::Theme<T> for FlatTheme {
-    fn painter(&self, p: &'static str) -> Box<dyn theme::AnyPainter<T>> {
+impl FlatTheme {
+    pub fn new() -> Self {
+        FlatTheme {}
+    }
+}
+
+impl<T: 'static> Theme<T> for FlatTheme {
+    fn painter(&self, p: &'static str) -> Box<dyn AnyPainter<T>> {
         match p {
-            "button" => Box::new(ButtonPainter),
+            painters::BUTTON => Box::new(ButtonPainter),
             _ => unimplemented!(),
         }
     }
@@ -22,14 +28,15 @@ impl<T: 'static> theme::Theme<T> for FlatTheme {
 
 struct ButtonPainter;
 
-impl<T: 'static> theme::TypedPainter<T> for ButtonPainter {
+impl<T: 'static> TypedPainter<T> for ButtonPainter {
     type Object = kit::Button<T>;
 
     fn paint(
         &mut self,
         _obj: &mut kit::Button<T>,
         _display: &mut dyn gfx::GraphicsDisplay,
-        _aux: &mut ui::Aux<T>,
+        aux: &mut ui::Aux<T>,
     ) {
+        aux.theme.color("foreground");
     }
 }

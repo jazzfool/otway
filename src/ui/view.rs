@@ -1,7 +1,7 @@
 use {
     super::*,
     reclutch::{display as gfx, event, verbgraph as vg},
-    std::{collections::HashMap, ops::Deref},
+    std::collections::HashMap,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -38,7 +38,7 @@ impl<T: 'static, S: 'static> View<T, S> {
             > + 'static,
     >(
         &mut self,
-        new: fn(CommonRef, &mut Aux<T>) -> W,
+        new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
     ) -> ChildRef<W> {
         self.children
@@ -57,7 +57,7 @@ impl<T: 'static, S: 'static> View<T, S> {
             + 'static,
     >(
         &mut self,
-        new: fn(CommonRef, &mut Aux<T>) -> W,
+        new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
         layout: &ChildRef<L>,
         config: L::Config,
@@ -66,7 +66,7 @@ impl<T: 'static, S: 'static> View<T, S> {
             .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
         let child = ChildRef(self.next_child, Default::default());
         self.next_child += 1;
-        let common = self.get::<W>(&child).unwrap().common();
+        let common = self.get::<W>(&child).unwrap().common().clone();
         if let Some(layout) = self.get_mut(&layout) {
             layout.push(common, config);
         }
@@ -119,18 +119,13 @@ impl<T: 'static, S: 'static> View<T, S> {
             .map(|x| *x.as_any_box().downcast::<W>().unwrap())
     }
 
-    pub fn handle<
-        E: vg::Event + 'static,
-        L: event::EventListen<Item = E> + 'static,
-        D: event::QueueInterfaceListable<Item = E, Listener = L>,
-    >(
+    pub fn handler<E: vg::Event + 'static, L: event::EventListen<Item = E> + 'static>(
         &mut self,
-        queue: &impl Deref<Target = D>,
         tag: &'static str,
-        handler: vg::UnboundQueueHandler<Self, Aux<T>, E>,
+        handler: vg::QueueHandler<Self, Aux<T>, E, L>,
     ) {
         if let Some(mut graph) = self.graph.take() {
-            graph = graph.add(tag, handler.bind(queue));
+            graph = graph.add(tag, handler);
             self.graph = Some(graph);
         }
     }
@@ -183,8 +178,8 @@ impl<T: 'static, S: 'static> WidgetChildren for View<T, S> {
 }
 
 impl<T: 'static, S: 'static> Element for View<T, S> {
-    fn common(&self) -> CommonRef {
-        self.common.clone()
+    fn common(&self) -> &CommonRef {
+        &self.common
     }
 }
 

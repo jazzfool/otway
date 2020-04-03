@@ -1,7 +1,7 @@
-use crate::{theme, ui};
-use reclutch::display as gfx;
-use reclutch::verbgraph as vg;
-use reclutch::widget::Widget;
+use {
+    crate::{theme, ui},
+    reclutch::{display as gfx, verbgraph as vg, widget::Widget},
+};
 
 #[derive(WidgetChildren)]
 #[widget_children_trait(crate::ui::WidgetChildren)]
@@ -16,7 +16,7 @@ impl<T: 'static> Button<T> {
         let graph = vg::VerbGraph::new();
 
         Button {
-            painter: theme::get_painter(&*aux.theme, "button"),
+            painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
             common: ui::CommonRef::new(parent),
             graph: Some(graph),
         }
@@ -24,8 +24,8 @@ impl<T: 'static> Button<T> {
 }
 
 impl<T: 'static> ui::Element for Button<T> {
-    fn common(&self) -> ui::CommonRef {
-        self.common.clone()
+    fn common(&self) -> &ui::CommonRef {
+        &self.common
     }
 }
 

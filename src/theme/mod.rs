@@ -1,3 +1,10 @@
+//! UI theme API.
+//!
+//! This API aims to be very generalized, hence the stringly-typed semantics.
+//! However, there are some predefined string values should be handled (see `painters` and `colors`).
+//!
+//! Themes can be extended upon be implementing a new theme type which uses composition and delegation to extend an existing theme.
+
 #[cfg(feature = "themes")]
 pub mod flat;
 
@@ -57,4 +64,25 @@ pub fn paint<O: 'static, T: 'static>(
     let mut painter = p(obj).0.take().unwrap();
     AnyPainter::paint(&mut *painter, obj, display, aux);
     p(obj).0 = Some(painter);
+}
+
+pub mod painters {
+    //! Standard painter definitions used by `kit`.
+    //! For a theme to support `kit`, it must implement all of these.
+
+    pub const BUTTON: &str = "button";
+}
+
+pub mod colors {
+    //! Standard color definitions used by `kit`.
+    //! For a theme to support `kit`, it must implement all of these.
+
+    /// Color used by text and other foreground elements.
+    pub const FOREGROUND: &str = "foreground";
+    /// Color used to fill general background elements.
+    pub const BACKGROUND: &str = "background";
+    /// A less contrasting version of the foreground.
+    pub const WEAK_FOREGROUND: &str = "weak_foreground";
+    /// A less contrasting version of the background.
+    pub const STRONG_FOREGROUND: &str = "strong_foreground";
 }
