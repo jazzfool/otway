@@ -1,6 +1,6 @@
 use {
     super::*,
-    reclutch::{display as gfx, event, verbgraph as vg},
+    reclutch::{display as gfx, verbgraph as graph},
     std::collections::HashMap,
 };
 
@@ -9,24 +9,24 @@ pub struct ChildRef<W>(u64, std::marker::PhantomData<W>);
 
 type StateChangedCallback<T> = Box<dyn FnMut(&mut T)>;
 
-pub struct View<T: 'static, S: 'static> {
+pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
     state: S,
     next_child: u64,
     children: HashMap<u64, Box<AuxWidgetChildren<T>>>,
     state_changed: Option<Vec<StateChangedCallback<Self>>>,
     common: CommonRef,
-    graph: vg::OptionVerbGraph<Self, Aux<T>>,
+    node: sinq::EventNode<Self, Aux<T>, E>,
 }
 
-impl<T: 'static, S: 'static> View<T, S> {
-    pub fn new(parent: CommonRef, state: S) -> Self {
+impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
+    pub fn new(parent: CommonRef, aux: &mut Aux<T>, state: S) -> Self {
         View {
             state,
             next_child: 0,
             children: HashMap::new(),
             state_changed: Some(Vec::new()),
             common: CommonRef::new(parent),
-            graph: Some(Default::default()),
+            node: sinq::EventNode::new(&mut aux.master),
         }
     }
 
@@ -119,15 +119,11 @@ impl<T: 'static, S: 'static> View<T, S> {
             .map(|x| *x.as_any_box().downcast::<W>().unwrap())
     }
 
-    pub fn handler<E: vg::Event + 'static, L: event::EventListen<Item = E> + 'static>(
+    pub fn handler<Eo: graph::Event + 'static>(
         &mut self,
-        tag: &'static str,
-        handler: vg::QueueHandler<Self, Aux<T>, E, L>,
+        handler: sinq::QueueHandler<Self, Aux<T>, Eo>,
     ) {
-        if let Some(mut graph) = self.graph.take() {
-            graph = graph.add(tag, handler);
-            self.graph = Some(graph);
-        }
+        self.node.add(handler);
     }
 
     #[inline(always)]
@@ -151,7 +147,7 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 }
 
-impl<T: 'static, S: 'static> WidgetChildren for View<T, S> {
+impl<T: 'static, S: 'static, E: graph::Event + 'static> WidgetChildren for View<T, S, E> {
     fn children(
         &self,
     ) -> Vec<
@@ -177,13 +173,13 @@ impl<T: 'static, S: 'static> WidgetChildren for View<T, S> {
     }
 }
 
-impl<T: 'static, S: 'static> Element for View<T, S> {
+impl<T: 'static, S: 'static, E: graph::Event + 'static> Element for View<T, S, E> {
     fn common(&self) -> &CommonRef {
         &self.common
     }
 }
 
-impl<T: 'static, S: 'static> Widget for View<T, S> {
+impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E> {
     type UpdateAux = Aux<T>;
     type GraphicalAux = Aux<T>;
     type DisplayObject = gfx::DisplayCommand;
@@ -193,16 +189,18 @@ impl<T: 'static, S: 'static> Widget for View<T, S> {
     }
 
     fn update(&mut self, aux: &mut Aux<T>) {
-        vg::update_all(self, aux);
-
-        for child in self.children_mut() {
-            child.update(aux);
-        }
+        update(self, aux);
     }
 }
 
-impl<T: 'static, S: 'static> vg::HasVerbGraph for View<T, S> {
-    fn verb_graph(&mut self) -> &mut vg::OptionVerbGraph<Self, Aux<T>> {
-        &mut self.graph
+impl<T: 'static, S: 'static, E: graph::Event + 'static> Node for View<T, S, E> {
+    type Event = E;
+
+    fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
+        &self.node
+    }
+
+    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
+        &mut self.node
     }
 }

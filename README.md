@@ -9,7 +9,7 @@ The `view` module aims to be a high-level idiomatic widget type;
 ```rust
 type CounterState = i32;
 
-fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::View<T, CounterState> {
+fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::View<T, CounterState, CounterEvent> {
     let mut view = view::View::new(parent, /* CounterState: */ 0);
 
     let layout = view.child(kit::VStack::new, aux);
@@ -22,17 +22,17 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::Vie
             view.lay(kit::Button::new, aux, &layout, None)
         );
 
-    view.handle(
-        "",
-        QueueHandler::new(view.get(count_up).evq()).on("press", |view, _, _| {
+    view.handler(
+        QueueHandler::new(view.get(count_up).node_ref()).on("press", |view, _, _| {
             view.set_state(|state| { *state += 1; });
+            view.node_ref().emit_owned(CounterEvent::Increment);
         })
     );
 
-    view.handle(
-        "",
-        QueueHandler::new(view.get(count_down).evq()).on("press", |view, _, _| {
+    view.handler(
+        QueueHandler::new(view.get(count_down).node_ref()).on("press", |view, _, _| {
             view.set_state(|state| { *state -= 1; });
+            view.node_ref().emit_owned(CounterEvent::Decrement);
         })
     );
 

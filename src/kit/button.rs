@@ -1,24 +1,30 @@
 use {
     crate::{theme, ui},
-    reclutch::{display as gfx, verbgraph as vg, widget::Widget},
+    reclutch::{display as gfx, widget::Widget},
 };
 
+#[derive(Event, Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum ButtonEvent {
+    #[event_key(press)]
+    Press,
+}
+
 #[derive(WidgetChildren)]
-#[widget_children_trait(crate::ui::WidgetChildren)]
+#[widget_children_trait(ui::WidgetChildren)]
 pub struct Button<T: 'static> {
     painter: theme::Painter<Self, T>,
+    cmds: ui::CommandGroup,
     common: ui::CommonRef,
-    graph: vg::OptionVerbGraph<Self, ui::Aux<T>>,
+    node: sinq::EventNode<Self, ui::Aux<T>, ButtonEvent>,
 }
 
 impl<T: 'static> Button<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
-        let graph = vg::VerbGraph::new();
-
         Button {
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
+            cmds: Default::default(),
             common: ui::CommonRef::new(parent),
-            graph: Some(graph),
+            node: sinq::EventNode::new(&mut aux.master),
         }
     }
 }
@@ -39,16 +45,31 @@ impl<T: 'static> Widget for Button<T> {
     }
 
     fn update(&mut self, aux: &mut ui::Aux<T>) {
-        vg::update_all(self, aux);
+        ui::update(self, aux);
+        ui::propagate_update(self, aux);
     }
 
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<T>) {
-        theme::paint(self, |x| &mut x.painter, display, aux);
+        ui::draw(
+            self,
+            |o| &mut o.cmds,
+            |o, aux| theme::paint(o, |o| &mut o.painter, aux),
+            display,
+            aux,
+        );
     }
 }
 
-impl<T: 'static> vg::HasVerbGraph for Button<T> {
-    fn verb_graph(&mut self) -> &mut vg::OptionVerbGraph<Self, ui::Aux<T>> {
-        &mut self.graph
+impl<T: 'static> ui::Node for Button<T> {
+    type Event = ButtonEvent;
+
+    #[inline]
+    fn node_ref(&self) -> &sinq::EventNode<Self, ui::Aux<T>, ButtonEvent> {
+        &self.node
+    }
+
+    #[inline]
+    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, ui::Aux<T>, ButtonEvent> {
+        &mut self.node
     }
 }

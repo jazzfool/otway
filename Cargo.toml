@@ -12,5 +12,6 @@ app = ["glutin", "reclutch/skia"]
 
 [dependencies]
 reclutch = { git = "https://github.com/jazzfool/reclutch" }
+sinq = { git = "https://github.com/jazzfool/sinq" }
 glutin = { version = "0.24", optional = true }
 thiserror = "1.0"

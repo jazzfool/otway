@@ -2,9 +2,10 @@ pub mod view;
 
 use {
     crate::theme::Theme,
-    reclutch::{display as gfx, widget::Widget},
+    reclutch::{display as gfx, event::RcEventQueue, verbgraph as graph, widget::Widget},
     std::{
         cell::{Ref, RefCell, RefMut},
+        ops::{Deref, DerefMut},
         rc::Rc,
     },
 };
@@ -15,6 +16,31 @@ use {
 pub struct Aux<T: 'static> {
     pub data: T,
     pub theme: Box<dyn Theme<T>>,
+    pub evq: RcEventQueue<WindowEvent>,
+    pub master: sinq::MasterNodeRecord,
+}
+
+pub trait MasterEventRecord {
+    fn master_mut(&mut self) -> &mut sinq::MasterNodeRecord;
+}
+
+impl<T: 'static> MasterEventRecord for Aux<T> {
+    #[inline]
+    fn master_mut(&mut self) -> &mut sinq::MasterNodeRecord {
+        &mut self.master
+    }
+}
+
+#[derive(Clone, Event)]
+pub enum WindowEvent {
+    #[event_key(mouse_press)]
+    MousePress,
+    #[event_key(mouse_release)]
+    MouseRelease,
+    #[event_key(key_press)]
+    KeyPress,
+    #[event_key(key_release)]
+    KeyRelease,
 }
 
 /// Helper type to store a counted reference to a `Common`, or in other words, a reference to the core of a widget type (not the widget type itself).
@@ -104,8 +130,167 @@ impl Common {
     }
 }
 
+pub trait Node: Widget + Sized {
+    type Event: graph::Event + 'static;
+
+    fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event>;
+    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event>;
+}
+
+pub trait NodeExt: Widget {
+    fn update_node(
+        &mut self,
+        aux: &mut Self::UpdateAux,
+        node: sinq::NodeId,
+        current_rec: usize,
+        length: usize,
+    ) -> Vec<sinq::EventRecord>;
+    fn index(&self) -> Vec<sinq::NodeId>;
+    fn current_record(&self) -> usize;
+    fn finalize(&mut self, final_rec: usize);
+}
+
+impl<N: Widget + Node + 'static> NodeExt for N
+where
+    N::UpdateAux: MasterEventRecord,
+{
+    fn update_node(
+        &mut self,
+        aux: &mut Self::UpdateAux,
+        node: sinq::NodeId,
+        current_rec: usize,
+        length: usize,
+    ) -> Vec<sinq::EventRecord> {
+        self.node_mut().set_record(Some(current_rec));
+        let mut graph = self.node_mut().take();
+        graph.update_node(self, aux, node, length);
+        self.node_mut().reset(graph);
+        self.node_mut().set_record(None);
+        aux.master_mut().record()
+    }
+
+    #[inline]
+    fn index(&self) -> Vec<sinq::NodeId> {
+        self.node_ref().subjects()
+    }
+
+    #[inline]
+    fn current_record(&self) -> usize {
+        self.node_ref().final_record()
+    }
+
+    #[inline]
+    fn finalize(&mut self, final_rec: usize) {
+        self.node_mut().set_final_record(final_rec);
+    }
+}
+
+fn update_invoker<T: 'static>(
+    widget: &mut &mut dyn WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+    aux: &mut Aux<T>,
+    node: sinq::NodeId,
+    current_rec: usize,
+    length: usize,
+) -> Vec<sinq::EventRecord> {
+    widget.update_node(aux, node, current_rec, length)
+}
+
+fn update_indexer<T: 'static>(
+    widget: &&mut dyn WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+) -> Vec<sinq::NodeId> {
+    widget.index()
+}
+
+fn update_recorder<T: 'static>(
+    widget: &&mut dyn WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+) -> usize {
+    widget.current_record()
+}
+
+fn update_finalizer<T: 'static>(
+    widget: &mut &mut dyn WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+    final_rec: usize,
+) {
+    widget.finalize(final_rec)
+}
+
+pub fn update<T: 'static>(
+    widget: &mut impl WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+    aux: &mut Aux<T>,
+) {
+    {
+        let mut items = widget.children_mut();
+        let rec = aux.master.record();
+        sinq::update(
+            &mut items,
+            aux,
+            rec,
+            update_invoker::<T>,
+            update_indexer::<T>,
+            update_recorder::<T>,
+            update_finalizer::<T>,
+        );
+    }
+
+    let rec = aux.master.record();
+    sinq::update(
+        &mut [widget
+            as &mut dyn WidgetChildren<
+                UpdateAux = Aux<T>,
+                GraphicalAux = Aux<T>,
+                DisplayObject = gfx::DisplayCommand,
+            >],
+        aux,
+        rec,
+        update_invoker::<T>,
+        update_indexer::<T>,
+        update_recorder::<T>,
+        update_finalizer::<T>,
+    );
+}
+
+pub fn propagate_update<T: 'static>(
+    widget: &mut impl WidgetChildren<
+        UpdateAux = Aux<T>,
+        GraphicalAux = Aux<T>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+    aux: &mut Aux<T>,
+) {
+    for child in widget.children_mut() {
+        child.update(aux);
+    }
+}
+
+/// An event that will never be emitted.
+#[derive(Event, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[event_key(none)]
+pub struct NoEvent(
+    /* to prevent instantiation */ std::marker::PhantomData<()>,
+);
+
 /// UI element trait, viewed as an extension of `Widget`.
-pub trait Element: Widget + AnyElement {
+pub trait Element: Widget + AnyElement + NodeExt {
     fn common(&self) -> &CommonRef;
 }
 
@@ -187,4 +372,58 @@ pub trait Layout: WidgetChildren {
     fn remove(&mut self, child: CommonRef, config: Self::Config);
     /// Returns a boolean indicating the existence of a child within this layout (i.e. if it has been `pushed` and not `removed`).
     fn has(&self, child: &CommonRef) -> bool;
+}
+
+/// `CommandGroup` compatible with the `draw` function.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CommandGroup(Option<gfx::CommandGroup>);
+
+impl Default for CommandGroup {
+    fn default() -> Self {
+        CommandGroup(Some(Default::default()))
+    }
+}
+
+impl Deref for CommandGroup {
+    type Target = gfx::CommandGroup;
+
+    fn deref(&self) -> &gfx::CommandGroup {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for CommandGroup {
+    fn deref_mut(&mut self) -> &mut gfx::CommandGroup {
+        self.0.as_mut().unwrap()
+    }
+}
+
+/// Widget drawing helper function which handles ownership.
+pub fn draw<T: 'static, W: WidgetChildren>(
+    obj: &mut W,
+    cmds_fn: impl Fn(&mut W) -> &mut CommandGroup,
+    draw_fn: impl FnOnce(&mut W, &mut Aux<T>) -> Vec<gfx::DisplayCommand>,
+    display: &mut dyn gfx::GraphicsDisplay,
+    aux: &mut Aux<T>,
+) -> Option<()> {
+    let mut cmds = cmds_fn(obj).0.take()?;
+    cmds.push_with(
+        display,
+        || draw_fn(obj, aux),
+        Default::default(),
+        None,
+        None,
+    );
+    cmds_fn(obj).0 = Some(cmds);
+
+    Some(())
+}
+
+/// Keyboard modifier keys state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct KeyModifiers {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub logo: bool,
 }

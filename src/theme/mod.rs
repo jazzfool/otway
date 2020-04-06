@@ -18,31 +18,24 @@ pub struct Painter<O: 'static, T: 'static>(
 pub trait TypedPainter<T: 'static>: AnyPainter<T> {
     type Object: 'static;
 
-    fn paint(
-        &mut self,
-        obj: &mut Self::Object,
-        display: &mut dyn gfx::GraphicsDisplay,
-        aux: &mut ui::Aux<T>,
-    );
+    fn paint(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand>;
 }
 
 pub trait AnyPainter<T: 'static> {
     fn paint(
         &mut self,
         obj: &mut dyn std::any::Any,
-        display: &mut dyn gfx::GraphicsDisplay,
         aux: &mut ui::Aux<T>,
-    );
+    ) -> Vec<gfx::DisplayCommand>;
 }
 
 impl<T: 'static, P: TypedPainter<T>> AnyPainter<T> for P {
     fn paint(
         &mut self,
         obj: &mut dyn std::any::Any,
-        display: &mut dyn gfx::GraphicsDisplay,
         aux: &mut ui::Aux<T>,
-    ) {
-        TypedPainter::paint(self, obj.downcast_mut::<P::Object>().unwrap(), display, aux);
+    ) -> Vec<gfx::DisplayCommand> {
+        TypedPainter::paint(self, obj.downcast_mut::<P::Object>().unwrap(), aux)
     }
 }
 
@@ -58,12 +51,12 @@ pub fn get_painter<O: 'static, T: 'static>(theme: &dyn Theme<T>, p: &'static str
 pub fn paint<O: 'static, T: 'static>(
     obj: &mut O,
     p: impl Fn(&mut O) -> &mut Painter<O, T>,
-    display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut ui::Aux<T>,
-) {
+) -> Vec<gfx::DisplayCommand> {
     let mut painter = p(obj).0.take().unwrap();
-    AnyPainter::paint(&mut *painter, obj, display, aux);
+    let out = AnyPainter::paint(&mut *painter, obj, aux);
     p(obj).0 = Some(painter);
+    out
 }
 
 pub mod painters {

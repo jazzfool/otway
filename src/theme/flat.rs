@@ -34,9 +34,12 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
     fn paint(
         &mut self,
         _obj: &mut kit::Button<T>,
-        _display: &mut dyn gfx::GraphicsDisplay,
         aux: &mut ui::Aux<T>,
-    ) {
+    ) -> Vec<gfx::DisplayCommand> {
+        let out = gfx::DisplayListBuilder::new();
+
         aux.theme.color("foreground");
+
+        out.build()
     }
 }
