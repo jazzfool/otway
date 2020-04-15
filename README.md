@@ -52,37 +52,39 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::Vie
 }
 ```
 
-## Event Queue Synchronization
+### Event Queue Synchronization
 
 In a real world application, out-of-order queue updating will rarely occur given that queues are updated as soon as an event is received by the OS, thus giving no chance for multiple events to pile up.
 However, in the rare case that this does occur, the queue system is reinforced by `sinq`, which ensures that everything is updated based on the original order that events were emitted in.
 
-## Parallelism
+### Parallelism
 
 At some point, Otway may internally move from `sinq` to [`revenq`](https://github.com/YZITE/revenq), or parallel queue updating may be implemented in `sinq`.
 Either way, hopefully there will be some multi-threading introduced to the update mechanisms.
 
 There are no plans for moving rendering code to a separate thread, given that `winit` schedules repaints excellently already.
 
-## `View` or `Widget`?
+### `View` or `Widget`?
 
 If you need custom rendering or custom input handling, use `Widget`.
 
 If you want to compose widgets to make a larger UI, use `View`.
 
-## `Widget`s have no Middleman
+### `Widget`s have no Middleman
 
 `View`s, by their very nature, simplify creating a UI by acting as a proxy interface, and thus require handles to reference children.
 
 `Widget`s, on the other hand, handle everything themselves. They can access their children directly.
 
-## Full and Extensible Theming
+### Full and Extensible Theming
 
 Widgets are 100% rendered by themes. Further than that, themes are stringly-typed and composable, meaning you can extend an existing theme to also cover your own custom widgets.
 
-## Open-ended Windowing and Rendering
+### Open-ended Windowing and Rendering
 
+The only standard interface relating to OS interactions is the window event type, which defines events for things such as clicking, typing, cursor movements, etc.
 
+Everything else is up to the implementor; any windowing API can be used and any graphics backend can be used as long as it implements `reclutch::display::GraphicsDisplay`.
 
 ## License
 
