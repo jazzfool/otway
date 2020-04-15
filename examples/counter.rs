@@ -1,5 +1,5 @@
 use otway::{
-    app, theme,
+    app, kit, theme,
     ui::{self, view::View},
 };
 
@@ -8,11 +8,14 @@ type Aux = app::AppAux<AuxData>;
 type AppAux = app::AppData<AuxData>;
 
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
-    let view = View::new(parent, aux, 0);
+    let mut view = View::new(parent, aux, 0);
 
-    // let layout = view.child(kit::VStack::new, aux);
+    let btn = view.child(kit::Button::new, aux);
+    view.get_mut(btn).unwrap().set_text("Hello");
 
-    // let btn = view.lay(kit::Button::new, aux, &layout, 0);
+    view.handle(btn, "press", |view, _, _| {
+        view.set_state(|x| *x += 1);
+    });
 
     view
 }
@@ -20,8 +23,8 @@ fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
 fn main() -> Result<(), app::AppError> {
     app::run(
         counter,
-        Default::default(),
-        theme::flat::FlatTheme::new(),
+        (),
+        |display| Box::new(theme::flat::FlatTheme::new(display, None, None).unwrap()),
         Default::default(),
     )
 }

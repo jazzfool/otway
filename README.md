@@ -2,12 +2,18 @@
 
 ### GUI toolkit library which aims to continue the simplicity of Reclutch
 
-## Views
-
-The `view` module aims to be a high-level idiomatic widget type;
+## Counter Example
 
 ```rust
 type CounterState = i32;
+
+#[derive(Clone, Event)]
+enum CounterEvent {
+    #[event_key(increment)]
+    Increment,
+    #[event_key(decrement)]
+    Decrement,
+}
 
 fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::View<T, CounterState, CounterEvent> {
     let mut view = view::View::new(parent, /* CounterState: */ 0);
@@ -16,43 +22,67 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::Vie
 
     let (count_up, count_label, count_down) =
         (
-            // these are still children of `view`, not `layout`.
+            // These are still owned by `view`, not `layout`.
             view.lay(kit::Button::new, aux, &layout, None),
             view.lay(kit::Label::new, aux, &layout, None),
             view.lay(kit::Button::new, aux, &layout, None)
         );
+    
+    // Handle the "press" event for the "count_up" button.
+    view.handle(count_up, "press", |view, _, _| {
+        view.set_state(|state| *state += 1);
+        view.node_ref().emit_owned(CounterEvent::Increment);
+    });
 
-    view.handler(
-        QueueHandler::new(view.get(count_up).node_ref()).on("press", |view, _, _| {
-            view.set_state(|state| { *state += 1; });
-            view.node_ref().emit_owned(CounterEvent::Increment);
-        })
-    );
+    // Handle the "press" event for the "count_down" button.
+    view.handle(count_down, "press", |view, _, _| {
+        view.set_state(|state| *state -= 1);
+        view.node_ref().emit_owned(CounterEvent::Decrement);
+    });
 
-    view.handler(
-        QueueHandler::new(view.get(count_down).node_ref()).on("press", |view, _, _| {
-            view.set_state(|state| { *state -= 1; });
-            view.node_ref().emit_owned(CounterEvent::Decrement);
-        })
-    );
-
+    // Callback whenver `set_state` is invoked.
     view.state_changed(|view| {
         view.get(count_label).set_text(format!("Count: {}", view.state().count));
     });
 
-    // invoke state_changed to initialize
-    view.set_state(|| {});
+    // Invoke state_changed to initialize label.
+    view.set_state(|_| {});
 
     view
 }
 ```
 
-## Otway vs. Thunderclap
+## Event Queue Synchronization
 
-To be frank, Thunderclap quickly descended into a messy bundle of Rust workarounds. The whole idea of Reclutch is that it flows well with idiomatic Rust, and Thunderclap ended up with excessive reliance on macros and trait misuse to provide an acceptable experience, i.e. not idiomatic.
+In a real world application, out-of-order queue updating will rarely occur given that queues are updated as soon as an event is received by the OS, thus giving no chance for multiple events to pile up.
+However, in the rare case that this does occur, the queue system is reinforced by `sinq`, which ensures that everything is updated based on the original order that events were emitted in.
 
-Otway is really a second attempt. A lot of "landmines" can be avoided thanks to first experimenting with Thunderclap.
-In general, Otway aims to stay as far away from macros, instead using regular Rust to achieve the same ease of use. Further, Otway aims to eliminate the use of "widget traits" (in Thunderclap this meant things like `Layable`, `StoresParentPosition`, etc).
+## Parallelism
+
+At some point, Otway may internally move from `sinq` to [`revenq`](https://github.com/YZITE/revenq), or parallel queue updating may be implemented in `sinq`.
+Either way, hopefully there will be some multi-threading introduced to the update mechanisms.
+
+There are no plans for moving rendering code to a separate thread, given that `winit` schedules repaints excellently already.
+
+## `View` or `Widget`?
+
+If you need custom rendering or custom input handling, use `Widget`.
+
+If you want to compose widgets to make a larger UI, use `View`.
+
+## `Widget`s have no Middleman
+
+`View`s, by their very nature, simplify creating a UI by acting as a proxy interface, and thus require handles to reference children.
+
+`Widget`s, on the other hand, handle everything themselves. They can access their children directly.
+
+## Full and Extensible Theming
+
+Widgets are 100% rendered by themes. Further than that, themes are stringly-typed and composable, meaning you can extend an existing theme to also cover your own custom widgets.
+
+## Open-ended Windowing and Rendering
+
+
 
 ## License
 

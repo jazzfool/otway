@@ -4,11 +4,32 @@ use {
     std::collections::HashMap,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Holds a strongly-typed ID of a child within a view.
+#[derive(Derivative)]
+#[derivative(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// regular `derive` will place unnecessary bounds on `W`.
+// ugly, but surprisingly the least ugly solution to this problem.
+#[derivative(Debug(bound = ""))]
+#[derivative(Clone(bound = ""))]
+#[derivative(Copy(bound = ""))]
+#[derivative(PartialEq(bound = ""))]
+#[derivative(Eq(bound = ""))]
+#[derivative(PartialOrd(bound = ""))]
+#[derivative(Ord(bound = ""))]
+#[derivative(Hash(bound = ""))]
 pub struct ChildRef<W>(u64, std::marker::PhantomData<W>);
 
-type StateChangedCallback<T> = Box<dyn FnMut(&mut T)>;
+type StateChangedCallback<T> = Box<dyn Fn(&mut T)>;
 
+/// Simplified widget interface to create a stateful and eventful composition of child widgets.
+///
+/// # Generics
+/// - `T`; The inner auxiliary type (i.e. the `T` in `Aux<T>`).
+/// - `S`; The state of this view. In essence, this is any data that represents an instantaneous phase of your UI.
+/// However, this isn't a strict requirement. If you simply want to store additional data associated with a view,
+/// this can also be used for that.
+/// - `E`; Event type emitted by the event node. By default, this is `NoEvent` (i.e. no events will be emitted).
+/// This can be overriden to be any static type that inherits `reclutch::verbgraph::Event`.
 pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
     state: S,
     next_child: u64,
@@ -19,6 +40,7 @@ pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
 }
 
 impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
+    /// Creates a new view with an initial state.
     pub fn new(parent: CommonRef, aux: &mut Aux<T>, state: S) -> Self {
         View {
             state,
@@ -30,6 +52,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
         }
     }
 
+    /// Creates a child and returns a reference to it.
     pub fn child<
         W: WidgetChildren<
                 UpdateAux = Aux<T>,
@@ -47,6 +70,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
         ChildRef(self.next_child - 1, Default::default())
     }
 
+    /// Creates a child and makes it a layout child of another widget.
     pub fn lay<
         W: WidgetChildren<
                 UpdateAux = Aux<T>,
@@ -59,20 +83,21 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
         &mut self,
         new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
-        layout: &ChildRef<L>,
+        layout: ChildRef<L>,
         config: L::Config,
     ) -> ChildRef<W> {
         self.children
             .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
         let child = ChildRef(self.next_child, Default::default());
         self.next_child += 1;
-        let common = self.get::<W>(&child).unwrap().common().clone();
-        if let Some(layout) = self.get_mut(&layout) {
+        let common = self.get::<W>(child).unwrap().common().clone();
+        if let Some(layout) = self.get_mut(layout) {
             layout.push(common, config);
         }
         child
     }
 
+    /// Returns a immutable reference to a child widget.
     #[inline]
     pub fn get<
         W: WidgetChildren<
@@ -82,11 +107,12 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
             > + 'static,
     >(
         &self,
-        child: &ChildRef<W>,
+        child: ChildRef<W>,
     ) -> Option<&W> {
         self.children.get(&child.0)?.as_any().downcast_ref::<W>()
     }
 
+    /// Returns a mutable reference to a child widget.
     #[inline]
     pub fn get_mut<
         W: WidgetChildren<
@@ -96,7 +122,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
             > + 'static,
     >(
         &mut self,
-        child: &ChildRef<W>,
+        child: ChildRef<W>,
     ) -> Option<&mut W> {
         self.children
             .get_mut(&child.0)?
@@ -104,6 +130,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
             .downcast_mut::<W>()
     }
 
+    /// Removes a child widget.
     pub fn remove<
         W: WidgetChildren<
                 UpdateAux = Aux<T>,
@@ -112,25 +139,68 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
             > + 'static,
     >(
         &mut self,
-        child: &ChildRef<W>,
+        child: ChildRef<W>,
     ) -> Option<W> {
         self.children
             .remove(&child.0)
             .map(|x| *x.as_any_box().downcast::<W>().unwrap())
     }
 
-    pub fn handler<Eo: graph::Event + 'static>(
-        &mut self,
-        handler: sinq::QueueHandler<Self, Aux<T>, Eo>,
-    ) {
-        self.node.add(handler);
+    /// Returns `true` if this view has a given child widget, otherwise `false`.
+    pub fn has<
+        W: WidgetChildren<
+                UpdateAux = Aux<T>,
+                GraphicalAux = Aux<T>,
+                DisplayObject = gfx::DisplayCommand,
+            > + 'static,
+    >(
+        &self,
+        child: ChildRef<W>,
+    ) -> bool {
+        self.children.contains_key(&child.0)
     }
 
-    #[inline(always)]
+    /// Handles an event from a child node.
+    pub fn handle<
+        W: WidgetChildren<
+                UpdateAux = Aux<T>,
+                GraphicalAux = Aux<T>,
+                DisplayObject = gfx::DisplayCommand,
+            > + Node<Event = Eo>
+            + 'static,
+        Eo: graph::Event + 'static,
+    >(
+        &mut self,
+        child: ChildRef<W>,
+        event: &'static str,
+        handler: impl Fn(&mut Self, &mut Aux<T>, Eo) + 'static,
+    ) {
+        if self.has(child) {
+            let node_id = self.get(child).unwrap().node_ref().id();
+            if let Some(qh) = self.node.get_handler_mut(node_id).and_then(|x| {
+                x.as_any_mut()
+                    .downcast_mut::<sinq::QueueHandler<Self, Aux<T>, Eo>>()
+            }) {
+                qh.on(event, handler);
+            } else {
+                let qh = sinq::QueueHandler::new(self.get(child).unwrap().node_ref())
+                    .and_on(event, handler);
+                self.node.add(qh);
+            }
+        }
+    }
+
+    /// Return an immutable reference to the state.
+    ///
+    /// To mutate the state, use `set_state`.
+    #[inline]
     pub fn state(&self) -> &S {
         &self.state
     }
 
+    /// Mutates the state through a closure.
+    /// Any value returned from the closure is returned by this function.
+    /// This will trigger `state_changed` callbacks.
     pub fn set_state<R>(&mut self, set: impl FnOnce(&mut S) -> R) -> R {
         let r = set(&mut self.state);
         let mut handlers = self.state_changed.take().unwrap();
@@ -141,8 +211,11 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
         r
     }
 
+    /// Adds a callback for state changes.
+    ///
+    /// This is unrelated to the event queue system.
     #[inline]
-    pub fn state_changed(&mut self, handler: impl FnMut(&mut Self) + 'static) {
+    pub fn state_changed(&mut self, handler: impl Fn(&mut Self) + 'static) {
         self.state_changed.as_mut().unwrap().push(Box::new(handler));
     }
 }
@@ -184,10 +257,12 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E>
     type GraphicalAux = Aux<T>;
     type DisplayObject = gfx::DisplayCommand;
 
+    #[inline]
     fn bounds(&self) -> gfx::Rect {
-        self.common.get().rect()
+        self.common.get_ref().rect()
     }
 
+    #[inline]
     fn update(&mut self, aux: &mut Aux<T>) {
         update(self, aux);
     }
@@ -196,10 +271,12 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E>
 impl<T: 'static, S: 'static, E: graph::Event + 'static> Node for View<T, S, E> {
     type Event = E;
 
+    #[inline]
     fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
         &self.node
     }
 
+    #[inline]
     fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
         &mut self.node
     }

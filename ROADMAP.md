@@ -2,7 +2,7 @@
 
 ## Accessibility
 
-The primary target platform for this is Windows. MacOS will accessibility will be implemented after Windows. Linux systems are ambiguous on this regard since each desktop environment has their own standards.
+The primary target platform for this is Windows. MacOS accessibility will be implemented after Windows. Linux systems are ambiguous on this regard since each desktop environment has their own standard.
 
 First step would be to look into MSAA (Microsoft Active Accessibility) and IAccessible2.
 
@@ -17,6 +17,8 @@ This is more open-ended and doesn't require deep integration but it's more of a 
 Thankfully, the `reclutch::display` API was built with this in mind. Realistically, any font shaping engine can be plugged into the text render command.
 
 Further, there a some localization libraries written in Rust which can be used. It might be a good idea to build a generic interface which the user can implement for the localization library that they're using.
+
+This should be implemented alongside accessibility, baked into `kit::Label`, which can then be used anywhere where text is display.
 
 ## Mutliple Windows
 
