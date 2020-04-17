@@ -1,8 +1,9 @@
 use {crate::ui, reclutch::display as gfx};
 
 pub mod button;
+pub mod label;
 
-pub use button::*;
+pub use {button::*, label::*};
 
 pub enum InteractionEvent {
     Press(gfx::Point),

@@ -19,9 +19,10 @@ pub enum ButtonEvent {
 #[derive(WidgetChildren)]
 #[widget_children_trait(ui::WidgetChildren)]
 pub struct Button<T: 'static> {
-    text: gfx::DisplayText,
+    #[widget_child]
+    label: kit::Label<T>,
+
     painter: theme::Painter<Self, T>,
-    cmds: ui::CommandGroup,
     common: ui::CommonRef,
     node: sinq::EventNode<Self, ui::Aux<T>, ButtonEvent>,
 }
@@ -45,26 +46,25 @@ impl<T: 'static> Button<T> {
             },
         ));
 
+        let common = ui::CommonRef::new(parent);
+
         Button {
-            text: gfx::DisplayText::Simple(Default::default()),
+            label: kit::Label::new(common.clone(), aux),
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
-            cmds: Default::default(),
-            common: ui::CommonRef::new(parent),
+            common,
             node,
         }
     }
 
     pub fn set_text(&mut self, text: impl Into<gfx::DisplayText>) {
-        self.text = text.into();
-        self.cmds.repaint();
-
+        self.label.set_text(text);
         let size = theme::size_hint(self, |x| &mut x.painter);
         self.common.get_mut().set_size(size);
     }
 
     #[inline]
     pub fn text(&self) -> &gfx::DisplayText {
-        &self.text
+        self.label.text()
     }
 }
 
@@ -94,7 +94,6 @@ impl<T: 'static> Widget for Button<T> {
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<T>) {
         ui::draw(
             self,
-            |o| &mut o.cmds,
             |o, aux| theme::paint(o, |o| &mut o.painter, aux),
             display,
             aux,
