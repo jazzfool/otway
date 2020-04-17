@@ -392,7 +392,7 @@ pub struct Common {
     updates: bool,
     rect: gfx::Rect,
     parent: Option<CommonRef>,
-    cmds: gfx::CommandGroup,
+    cmds: CommandGroup,
 }
 
 impl Common {
@@ -474,12 +474,12 @@ impl Common {
     }
 
     #[inline]
-    pub fn command_group(&self) -> &gfx::CommandGroup {
+    pub fn command_group(&self) -> &CommandGroup {
         &self.cmds
     }
 
     #[inline]
-    pub fn command_group_mut(&mut self) -> &mut gfx::CommandGroup {
+    pub fn command_group_mut(&mut self) -> &mut CommandGroup {
         &mut self.cmds
     }
 }
@@ -786,12 +786,11 @@ impl DerefMut for CommandGroup {
 /// Widget drawing helper function which handles ownership.
 pub fn draw<T: 'static, W: WidgetChildren>(
     obj: &mut W,
-    cmds_fn: impl Fn(&mut W) -> &mut CommandGroup,
     draw_fn: impl FnOnce(&mut W, &mut Aux<T>) -> Vec<gfx::DisplayCommand>,
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
-) -> Option<()> {
-    let mut cmds = cmds_fn(obj).0.take()?;
+) {
+    let mut cmds = obj.common().get_mut().command_group_mut().0.take().unwrap();
     cmds.push_with(
         display,
         || draw_fn(obj, aux),
@@ -799,9 +798,7 @@ pub fn draw<T: 'static, W: WidgetChildren>(
         None,
         None,
     );
-    cmds_fn(obj).0 = Some(cmds);
-
-    Some(())
+    obj.common().get_mut().command_group_mut().0 = Some(cmds);
 }
 
 /// Keyboard modifier keys state.
