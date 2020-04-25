@@ -17,7 +17,7 @@ impl<T: 'static> Label<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         Label {
             text: gfx::DisplayText::Simple(Default::default()),
-            painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
+            painter: theme::get_painter(aux.theme.as_ref(), theme::painters::LABEL),
             common: ui::CommonRef::new(parent),
             node: sinq::EventNode::new(&mut aux.master),
         }
@@ -25,10 +25,10 @@ impl<T: 'static> Label<T> {
 
     pub fn set_text(&mut self, text: impl Into<gfx::DisplayText>) {
         self.text = text.into();
-        self.common.get_mut().command_group_mut().repaint();
+        self.common.with(|x| x.command_group_mut().repaint());
 
         let size = theme::size_hint(self, |x| &mut x.painter);
-        self.common.get_mut().set_size(size);
+        self.common.with(|x| x.set_size(size));
     }
 
     #[inline]
@@ -51,7 +51,7 @@ impl<T: 'static> Widget for Label<T> {
 
     #[inline]
     fn bounds(&self) -> gfx::Rect {
-        self.common.get_ref().rect()
+        self.common.with(|x| x.rect())
     }
 
     #[inline]

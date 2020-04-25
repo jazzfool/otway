@@ -1,6 +1,7 @@
 use {
     crate::{kit, prelude::*, theme::*, ui},
     reclutch::display as gfx,
+    std::rc::Rc,
 };
 
 const CORNER_RADIUS: f32 = 5.0;
@@ -18,10 +19,12 @@ pub struct FontSizes {
     ui: f32,
 }
 
-pub struct FlatTheme {
+struct Inner {
     fonts: Fonts,
     font_sizes: FontSizes,
 }
+
+pub struct FlatTheme(Rc<Inner>);
 
 impl FlatTheme {
     pub fn new(
@@ -62,7 +65,7 @@ impl FlatTheme {
 
         let font_sizes = font_sizes.unwrap_or_else(|| FontSizes { ui: 12.0 });
 
-        Ok(FlatTheme { fonts, font_sizes })
+        Ok(FlatTheme(Rc::new(Inner { fonts, font_sizes })))
     }
 }
 
@@ -70,8 +73,10 @@ impl<T: 'static> Theme<T> for FlatTheme {
     fn painter(&self, p: &'static str) -> Box<dyn AnyPainter<T>> {
         match p {
             painters::BUTTON => Box::new(ButtonPainter {
-                fonts: self.fonts.clone(),
-                font_sizes: self.font_sizes,
+                theme: Rc::clone(&self.0),
+            }),
+            painters::LABEL => Box::new(LabelPainter {
+                theme: Rc::clone(&self.0),
             }),
             _ => unimplemented!(),
         }
@@ -83,30 +88,14 @@ impl<T: 'static> Theme<T> for FlatTheme {
             colors::BACKGROUND => gfx::Color::new(0.0, 0.0, 0.0, 1.0),
             colors::WEAK_FOREGROUND => gfx::Color::new(0.5, 0.5, 0.5, 1.0),
             colors::STRONG_FOREGROUND => gfx::Color::new(1.0, 1.0, 1.0, 1.0),
+            colors::STRONG_BACKGROUND => gfx::Color::new(0.2, 0.2, 0.2, 1.0),
             _ => unimplemented!(),
         }
     }
 }
 
 struct ButtonPainter {
-    fonts: Fonts,
-    font_sizes: FontSizes,
-}
-
-impl ButtonPainter {
-    fn text_bounds(&self, text: gfx::DisplayText) -> gfx::Size {
-        gfx::TextDisplayItem {
-            text,
-            bottom_left: Default::default(),
-            color: gfx::StyleColor::Color(Default::default()),
-            font: self.fonts.ui_regular.0,
-            font_info: self.fonts.ui_regular.1.clone(),
-            size: self.font_sizes.ui,
-        }
-        .bounds()
-        .unwrap()
-        .size
-    }
+    theme: Rc<Inner>,
 }
 
 impl<T: 'static> TypedPainter<T> for ButtonPainter {
@@ -120,10 +109,10 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
         let mut out = gfx::DisplayListBuilder::new();
 
         out.push_round_rectangle(
-            obj.common().get_ref().rect(),
+            obj.common().with(|x| x.rect()),
             CORNER_RADII,
             gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(
-                aux.theme.color(colors::FOREGROUND),
+                aux.theme.color(colors::STRONG_BACKGROUND),
             )),
             None,
         );
@@ -132,7 +121,53 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
     }
 
     #[inline]
-    fn size_hint(&mut self, obj: &mut kit::Button<T>) -> gfx::Size {
+    fn size_hint(&mut self, _obj: &mut kit::Button<T>) -> gfx::Size {
+        gfx::Size::new(50.0, 10.0)
+    }
+}
+
+struct LabelPainter {
+    theme: Rc<Inner>,
+}
+
+impl LabelPainter {
+    fn text_bounds(&self, text: gfx::DisplayText) -> gfx::Size {
+        gfx::TextDisplayItem {
+            text,
+            font: self.theme.fonts.ui_regular.0,
+            font_info: self.theme.fonts.ui_regular.1.clone(),
+            size: self.theme.font_sizes.ui,
+            bottom_left: Default::default(),
+            color: gfx::StyleColor::Color(Default::default()),
+        }
+        .bounds()
+        .unwrap()
+        .size
+    }
+}
+
+impl<T: 'static> TypedPainter<T> for LabelPainter {
+    type Object = kit::Label<T>;
+
+    fn paint(&mut self, obj: &mut kit::Label<T>, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
+        let mut out = gfx::DisplayListBuilder::new();
+
+        let text = gfx::TextDisplayItem {
+            text: obj.text().clone(),
+            font: self.theme.fonts.ui_regular.0,
+            font_info: self.theme.fonts.ui_regular.1.clone(),
+            size: self.theme.font_sizes.ui,
+            bottom_left: Default::default(),
+            color: gfx::StyleColor::Color(aux.theme.color(colors::FOREGROUND)),
+        };
+
+        out.push_text(text, None);
+
+        out.build()
+    }
+
+    #[inline]
+    fn size_hint(&mut self, obj: &mut kit::Label<T>) -> gfx::Size {
         self.text_bounds(obj.text().clone())
     }
 }

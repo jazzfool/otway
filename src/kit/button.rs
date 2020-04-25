@@ -58,8 +58,9 @@ impl<T: 'static> Button<T> {
 
     pub fn set_text(&mut self, text: impl Into<gfx::DisplayText>) {
         self.label.set_text(text);
-        let size = theme::size_hint(self, |x| &mut x.painter);
-        self.common.get_mut().set_size(size);
+        let padding = theme::size_hint(self, |x| &mut x.painter);
+        self.common
+            .with(|x| x.set_size(self.label.bounds().size + padding));
     }
 
     #[inline]
@@ -82,7 +83,7 @@ impl<T: 'static> Widget for Button<T> {
 
     #[inline]
     fn bounds(&self) -> gfx::Rect {
-        self.common.get_ref().rect()
+        self.common.with(|x| x.rect())
     }
 
     #[inline]

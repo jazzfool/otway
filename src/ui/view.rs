@@ -259,7 +259,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E>
 
     #[inline]
     fn bounds(&self) -> gfx::Rect {
-        self.common.get_ref().rect()
+        self.common.with(|x| x.rect())
     }
 
     #[inline]

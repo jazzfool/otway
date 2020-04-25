@@ -90,6 +90,7 @@ pub mod painters {
     //! For a theme to support `kit`, it must implement all of these.
 
     pub const BUTTON: &str = "button";
+    pub const LABEL: &str = "label";
 }
 
 pub mod colors {
@@ -104,4 +105,6 @@ pub mod colors {
     pub const WEAK_FOREGROUND: &str = "weak_foreground";
     /// A less contrasting version of the background.
     pub const STRONG_FOREGROUND: &str = "strong_foreground";
+    /// A background element in the foreground. For example, the color of a button.
+    pub const STRONG_BACKGROUND: &str = "strong_background";
 }

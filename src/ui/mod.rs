@@ -4,7 +4,7 @@ use {
     crate::theme::Theme,
     reclutch::{display as gfx, verbgraph as graph, widget::Widget},
     std::{
-        cell::{Ref, RefCell, RefMut},
+        cell::Cell,
         ops::{Deref, DerefMut},
         rc::Rc,
     },
@@ -40,7 +40,7 @@ impl<T: 'static> MasterEventRecord for Aux<T> {
 
 #[derive(Clone, Debug, PartialEq)]
 struct ConsumableEventInner<T> {
-    marker: RefCell<bool>,
+    marker: Cell<bool>,
     data: T,
 }
 
@@ -64,7 +64,7 @@ impl<T> ConsumableEvent<T> {
     /// Creates a unconsumed event, initialized with `val`.
     pub fn new(val: T) -> Self {
         ConsumableEvent(Rc::new(ConsumableEventInner {
-            marker: RefCell::new(true),
+            marker: Cell::new(true),
             data: val,
         }))
     }
@@ -79,9 +79,8 @@ impl<T> ConsumableEvent<T> {
     where
         P: FnMut(&T) -> bool,
     {
-        let mut is_consumed = self.0.marker.borrow_mut();
-        if *is_consumed && pred(&self.0.data) {
-            *is_consumed = false;
+        if self.0.marker.get() && pred(&self.0.data) {
+            self.0.marker.set(false);
             Some(&self.0.data)
         } else {
             None
@@ -331,32 +330,34 @@ keyboard_enum! {
 }
 
 /// Helper type to store a counted reference to a `Common`, or in other words, a reference to the core of a widget type (not the widget type itself).
-#[derive(Debug, Clone, PartialEq)]
-pub struct CommonRef(Rc<RefCell<Common>>);
+///
+/// The reference type provides `RefCell`-like semantics using `Cell`, reducing the overhead to only `Rc` instead of `Rc` + `RefCell`.
+/// It does this by `take` and `replace`, inserted around accessor closures.
+#[derive(Clone)]
+pub struct CommonRef(Rc<Cell<Option<Common>>>);
 
 impl CommonRef {
     /// Creates a new `CommonRef` as an implied child of a `parent`.
-    #[allow(clippy::wrong_self_convention)]
-    #[inline(always)]
+    //#[allow(clippy::wrong_self_convention)]
+    #[inline]
     pub fn new(parent: impl Into<Option<CommonRef>>) -> Self {
-        CommonRef(Rc::new(RefCell::new(Common::new(parent))))
+        CommonRef(Rc::new(Cell::new(Some(Common::new(parent)))))
     }
 
-    /// Returns a `Ref` to the inner `Common`.
-    #[inline(always)]
-    pub fn get_ref(&self) -> Ref<'_, Common> {
-        self.0.borrow()
-    }
-
-    /// Returns a `RefMut` to the inner `Common`.
-    #[inline(always)]
-    pub fn get_mut(&self) -> RefMut<'_, Common> {
-        self.0.borrow_mut()
+    /// Mutably access the inner `Common` through a closure.
+    /// The return value of the closure is forwarded to the caller.
+    ///
+    /// This can be used to extract certain values or mutate, or both.
+    pub fn with<R>(&self, f: impl FnOnce(&mut Common) -> R) -> R {
+        let mut common = self.0.take().unwrap();
+        let r = f(&mut common);
+        self.0.replace(Some(common));
+        r
     }
 
     /// Returns a reference to the ref-counted `Common`.
-    #[inline(always)]
-    pub fn get_rc(&self) -> &Rc<RefCell<Common>> {
+    #[inline]
+    pub fn get_rc(&self) -> &Rc<Cell<Option<Common>>> {
         &self.0
     }
 }
@@ -385,7 +386,7 @@ impl Interaction {
 /// The core, widget-agnostic object.
 /// This should be stored within widgets via `Element`.
 /// It handles the widget rectangle, parent, and other fundamental things.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Common {
     pub(crate) interaction: Interaction,
     visible: bool,
@@ -461,16 +462,12 @@ impl Common {
         self.updates
     }
 
-    /// Returns a `Ref` to the parent `Common`, if there is one.
+    /// Returns a reference to the parent `Common`.
+    ///
+    /// If `None` is returned then this is the root `Common`.
     #[inline]
-    pub fn parent(&self) -> Option<Ref<'_, Common>> {
-        Some(self.parent.as_ref()?.get_ref())
-    }
-
-    /// Returns a `RefMut` to the parent `Common`, if there is one.
-    #[inline]
-    pub fn parent_mut(&mut self) -> Option<RefMut<'_, Common>> {
-        Some(self.parent.as_mut()?.get_mut())
+    pub fn parent(&self) -> Option<CommonRef> {
+        self.parent.clone()
     }
 
     #[inline]
@@ -602,7 +599,7 @@ pub fn update<T: 'static>(
 ) {
     {
         let mut items = widget.children_mut();
-        items.retain(|x| x.common().get_ref().updates());
+        items.retain(|x| x.common().with(|x| x.updates()));
         let rec = aux.master.record().to_vec();
         sinq::update(
             &mut items,
@@ -658,21 +655,19 @@ pub fn propagate_draw<T: 'static>(
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
 ) {
-    for child in widget.children_mut().into_iter().rev() {
-        propagate_draw(child, display, aux);
+    if widget.common().with(|c| c.visible()) {
+        widget.draw(display, aux);
     }
 
-    if widget.common().get_ref().visible() {
-        widget.draw(display, aux);
+    for child in widget.children_mut().into_iter().rev() {
+        propagate_draw(child, display, aux);
     }
 }
 
 /// An event that will never be emitted.
 #[derive(Event, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[event_key(none)]
-pub struct NoEvent(
-    /* to prevent instantiation */ std::marker::PhantomData<()>,
-);
+pub struct NoEvent(/* to prevent instantiation */ ());
 
 /// UI element trait, viewed as an extension of `Widget`.
 pub trait Element: Widget + AnyElement + NodeExt {
@@ -790,7 +785,9 @@ pub fn draw<T: 'static, W: WidgetChildren>(
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
 ) {
-    let mut cmds = obj.common().get_mut().command_group_mut().0.take().unwrap();
+    let mut cmds = obj
+        .common()
+        .with(|x| x.command_group_mut().0.take().unwrap());
     cmds.push_with(
         display,
         || draw_fn(obj, aux),
@@ -798,7 +795,7 @@ pub fn draw<T: 'static, W: WidgetChildren>(
         None,
         None,
     );
-    obj.common().get_mut().command_group_mut().0 = Some(cmds);
+    obj.common().with(|x| x.command_group_mut().0 = Some(cmds));
 }
 
 /// Keyboard modifier keys state.

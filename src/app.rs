@@ -47,8 +47,23 @@ impl<
     type GraphicalAux = AppAux<T>;
     type DisplayObject = gfx::DisplayCommand;
 
+    #[inline]
     fn update(&mut self, aux: &mut AppAux<T>) {
         ui::update(self, aux);
+    }
+
+    #[inline]
+    fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut AppAux<T>) {
+        ui::draw(
+            self,
+            |_, aux| {
+                vec![gfx::DisplayCommand::Clear(
+                    aux.theme.color(theme::colors::BACKGROUND),
+                )]
+            },
+            display,
+            aux,
+        )
     }
 }
 

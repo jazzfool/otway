@@ -33,7 +33,7 @@ pub fn interaction_handler<
                     .unwrap()
                     .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
                 {
-                    obj.common().get_mut().interaction.pressed = true;
+                    obj.common().with(|x| x.interaction.pressed = true);
                     callback(obj, aux, InteractionEvent::Press(pos));
                 }
             },
@@ -47,7 +47,7 @@ pub fn interaction_handler<
                     .unwrap()
                     .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
                 {
-                    obj.common().get_mut().interaction.pressed = false;
+                    obj.common().with(|x| x.interaction.pressed = false);
                     callback(obj, aux, InteractionEvent::Release(pos));
                 }
             },
@@ -56,17 +56,17 @@ pub fn interaction_handler<
             "mouse_move",
             move |obj: &mut T, aux: &mut ui::Aux<A>, event| {
                 let bounds = obj.bounds();
-                let was_hovered = obj.common().get_mut().interaction.hovered;
+                let was_hovered = obj.common().with(|x| x.interaction.hovered);
                 let event = event.unwrap_as_mouse_move().unwrap();
                 let pos = if let Some(&pos) = event.with(|&pos| bounds.contains(pos)) {
-                    obj.common().get_mut().interaction.hovered = true;
+                    obj.common().with(|x| x.interaction.hovered = true);
                     pos
                 } else {
-                    obj.common().get_mut().interaction.hovered = false;
+                    obj.common().with(|x| x.interaction.hovered = false);
                     event.get().clone()
                 };
 
-                if was_hovered != obj.common().get_mut().interaction.hovered {
+                if was_hovered != obj.common().with(|x| x.interaction.hovered) {
                     if was_hovered {
                         callback(obj, aux, InteractionEvent::EndHover(pos));
                     } else {
