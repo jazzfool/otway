@@ -2,7 +2,7 @@ pub mod view;
 
 use {
     crate::theme::Theme,
-    reclutch::{display as gfx, verbgraph as graph, widget::Widget},
+    reclutch::{display as gfx, widget::Widget},
     std::{
         cell::Cell,
         ops::{Deref, DerefMut},
@@ -18,24 +18,49 @@ pub struct Aux<T: 'static> {
     pub data: T,
     /// Current application theme.
     pub theme: Box<dyn Theme<T>>,
-    /// Out-going only node. Emits OS events relating to the window.
-    // TODO(jazzfool): use a collection to prepare for multiple window support.
-    pub node: sinq::EventNode<(), (), WindowEvent>,
-    /// Master event record, storing a timeline of all events emitted from within the application.
-    /// This facilitates event synchronization.
-    pub master: sinq::MasterNodeRecord,
+    /// Queue event ID.
+    pub id: u64,
+    /// Global queue.
+    pub queue: uniq::rc::Queue,
 }
 
-/// Auxiliary type containing a master event record.
-pub trait MasterEventRecord {
-    fn master_mut(&mut self) -> &mut sinq::MasterNodeRecord;
-}
-
-impl<T: 'static> MasterEventRecord for Aux<T> {
-    #[inline]
-    fn master_mut(&mut self) -> &mut sinq::MasterNodeRecord {
-        &mut self.master
+impl<T: 'static> Aux<T> {
+    /// Creates a new [`Listener`](Listener).
+    pub fn listen<O: 'static, A: 'static>(&self) -> Listener<O, A> {
+        Listener(Some(self.queue.listen()))
     }
+}
+
+/// Listener compatible with the [`dispatch`](dispatch) function.
+///
+/// Created via [`listen`](Aux::listen).
+pub struct Listener<O: 'static, A: 'static>(Option<uniq::rc::EventListener<O, A>>);
+
+impl<O: 'static, A: 'static> Deref for Listener<O, A> {
+    type Target = uniq::rc::EventListener<O, A>;
+
+    #[inline]
+    fn deref(&self) -> &uniq::rc::EventListener<O, A> {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl<O: 'static, A: 'static> DerefMut for Listener<O, A> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut uniq::rc::EventListener<O, A> {
+        self.0.as_mut().unwrap()
+    }
+}
+
+/// Dispatches the event handlers in a [`Listener`](Listener).
+pub fn dispatch<O: 'static, A: 'static>(
+    o: &mut O,
+    a: &mut A,
+    l: impl Fn(&mut O) -> &mut Listener<O, A>,
+) {
+    let mut ll = l(o).0.take().unwrap();
+    ll.dispatch(o, a);
+    l(o).0 = Some(ll);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -360,6 +385,10 @@ impl CommonRef {
     pub fn get_rc(&self) -> &Rc<Cell<Option<Common>>> {
         &self.0
     }
+
+    pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
+        self.with(|x| x.emit(aux, event));
+    }
 }
 
 /// Contains the interaction state for a single widget.
@@ -394,6 +423,7 @@ pub struct Common {
     rect: gfx::Rect,
     parent: Option<CommonRef>,
     cmds: CommandGroup,
+    id: u64,
 }
 
 impl Common {
@@ -407,6 +437,7 @@ impl Common {
             rect: Default::default(),
             parent: parent.into(),
             cmds: Default::default(),
+            id: uniq::id::next(),
         }
     }
 
@@ -479,160 +510,15 @@ impl Common {
     pub fn command_group_mut(&mut self) -> &mut CommandGroup {
         &mut self.cmds
     }
-}
-
-/// Widget which act as an event node, i.e. have in-going and out-going connections to other nodes.
-pub trait Node: Widget + Sized {
-    type Event: graph::Event + 'static;
-
-    /// Returns an immutable reference to the widget's event node.
-    fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event>;
-    /// Returns a mutable reference to the widget's event node.
-    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event>;
-}
-
-/// Extension functions required by `update`.
-///
-/// **Do not implement manually**, implement `Node` instead.
-/// You do not need to worry about this trait.
-pub trait NodeExt: Widget {
-    fn update_node(
-        &mut self,
-        aux: &mut Self::UpdateAux,
-        node: sinq::NodeId,
-        current_rec: usize,
-        length: usize,
-    ) -> Option<Vec<sinq::EventRecord>>;
-    fn index(&self) -> Vec<sinq::NodeId>;
-    fn current_record(&self) -> usize;
-    fn finalize(&mut self, final_rec: usize);
-}
-
-impl<N: Widget + Node + 'static> NodeExt for N
-where
-    N::UpdateAux: MasterEventRecord,
-{
-    fn update_node(
-        &mut self,
-        aux: &mut Self::UpdateAux,
-        node: sinq::NodeId,
-        current_rec: usize,
-        length: usize,
-    ) -> Option<Vec<sinq::EventRecord>> {
-        self.node_mut().set_record(Some(current_rec));
-        let mut graph = self.node_mut().take();
-        graph.update_node(self, aux, node, 1);
-        self.node_mut().reset(graph);
-        self.node_mut().set_record(None);
-        if aux.master_mut().record().len() != length {
-            Some(aux.master_mut().record().to_vec())
-        } else {
-            None
-        }
-    }
 
     #[inline]
-    fn index(&self) -> Vec<sinq::NodeId> {
-        self.node_ref().subjects()
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
-    #[inline]
-    fn current_record(&self) -> usize {
-        self.node_ref().final_record()
+    pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
+        aux.queue.emit(self.id, event);
     }
-
-    #[inline]
-    fn finalize(&mut self, final_rec: usize) {
-        self.node_mut().set_final_record(final_rec);
-    }
-}
-
-fn update_invoker<T: 'static>(
-    widget: &mut &mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    aux: &mut Aux<T>,
-    node: sinq::NodeId,
-    current_rec: usize,
-    length: usize,
-) -> Option<Vec<sinq::EventRecord>> {
-    widget.update_node(aux, node, current_rec, length)
-}
-
-fn update_indexer<T: 'static>(
-    widget: &&mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-) -> Vec<sinq::NodeId> {
-    widget.index()
-}
-
-fn update_recorder<T: 'static>(
-    widget: &&mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-) -> usize {
-    widget.current_record()
-}
-
-fn update_finalizer<T: 'static>(
-    widget: &mut &mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    final_rec: usize,
-) {
-    widget.finalize(final_rec)
-}
-
-/// Updates the nodes of the direct children of a widget.
-pub fn update<T: 'static>(
-    widget: &mut impl WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    aux: &mut Aux<T>,
-) {
-    {
-        let mut items = widget.children_mut();
-        items.retain(|x| x.common().with(|x| x.updates()));
-        let rec = aux.master.record().to_vec();
-        sinq::update(
-            &mut items,
-            rec,
-            |widget, node, current_rec, length| {
-                update_invoker::<T>(widget, aux, node, current_rec, length)
-            },
-            update_indexer::<T>,
-            update_recorder::<T>,
-            update_finalizer::<T>,
-        );
-    }
-
-    let rec = aux.master.record().to_vec();
-    sinq::update(
-        &mut [widget
-            as &mut dyn WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            >],
-        rec,
-        |widget, node, current_rec, length| {
-            update_invoker::<T>(widget, aux, node, current_rec, length)
-        },
-        update_indexer::<T>,
-        update_recorder::<T>,
-        update_finalizer::<T>,
-    );
 }
 
 /// Recursively propagate the `update` method.
@@ -676,7 +562,7 @@ pub fn propagate_draw<T: 'static>(
 pub struct NoEvent(/* to prevent instantiation */ ());
 
 /// UI element trait, viewed as an extension of `Widget`.
-pub trait Element: Widget + AnyElement + NodeExt {
+pub trait Element: Widget + AnyElement {
     fn common(&self) -> &CommonRef;
 }
 

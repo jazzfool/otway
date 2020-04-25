@@ -92,6 +92,10 @@ impl<T: 'static> Theme<T> for FlatTheme {
             _ => unimplemented!(),
         }
     }
+
+    fn standards(&self) -> &Standards {
+        &Standards { label_size: 16.0 }
+    }
 }
 
 struct ButtonPainter {

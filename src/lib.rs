@@ -25,8 +25,11 @@ pub mod ui;
 pub mod prelude {
     pub use crate::{
         theme::{Theme, TypedPainter},
-        ui::{AnyElement, Element, Layout, MasterEventRecord, Node, NodeExt, WidgetChildren},
+        ui::{AnyElement, Element, Layout, WidgetChildren},
     };
+
+    #[cfg(feature = "kit")]
+    pub use crate::kit::ViewMixin;
 }
 
 #[macro_use]

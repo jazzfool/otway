@@ -8,32 +8,45 @@ use {
 #[widget_children_trait(ui::WidgetChildren)]
 pub struct Label<T: 'static> {
     text: gfx::DisplayText,
+    size: f32,
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
-    node: sinq::EventNode<Self, ui::Aux<T>, ui::NoEvent>,
 }
 
 impl<T: 'static> Label<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         Label {
             text: gfx::DisplayText::Simple(Default::default()),
+            size: aux.theme.standards().label_size,
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::LABEL),
             common: ui::CommonRef::new(parent),
-            node: sinq::EventNode::new(&mut aux.master),
         }
     }
 
     pub fn set_text(&mut self, text: impl Into<gfx::DisplayText>) {
         self.text = text.into();
-        self.common.with(|x| x.command_group_mut().repaint());
-
-        let size = theme::size_hint(self, |x| &mut x.painter);
-        self.common.with(|x| x.set_size(size));
+        self.repaint_and_resize();
     }
 
     #[inline]
     pub fn text(&self) -> &gfx::DisplayText {
         &self.text
+    }
+
+    pub fn set_size(&mut self, size: f32) {
+        self.size = size;
+        self.repaint_and_resize();
+    }
+
+    #[inline]
+    pub fn size(&self) -> f32 {
+        self.size
+    }
+
+    fn repaint_and_resize(&mut self) {
+        self.common.with(|x| x.command_group_mut().repaint());
+        let size = theme::size_hint(self, |x| &mut x.painter);
+        self.common.with(|x| x.set_size(size));
     }
 }
 
@@ -55,11 +68,6 @@ impl<T: 'static> Widget for Label<T> {
     }
 
     #[inline]
-    fn update(&mut self, aux: &mut ui::Aux<T>) {
-        ui::update(self, aux);
-    }
-
-    #[inline]
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<T>) {
         ui::draw(
             self,
@@ -67,19 +75,5 @@ impl<T: 'static> Widget for Label<T> {
             display,
             aux,
         );
-    }
-}
-
-impl<T: 'static> ui::Node for Label<T> {
-    type Event = ui::NoEvent;
-
-    #[inline]
-    fn node_ref(&self) -> &sinq::EventNode<Self, ui::Aux<T>, ui::NoEvent> {
-        &self.node
-    }
-
-    #[inline]
-    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, ui::Aux<T>, ui::NoEvent> {
-        &mut self.node
     }
 }

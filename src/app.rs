@@ -31,7 +31,6 @@ pub struct Root<
     #[widget_child]
     child: W,
     common: ui::CommonRef,
-    node: sinq::EventNode<Self, AppAux<T>, ui::NoEvent>,
 }
 
 impl<
@@ -46,11 +45,6 @@ impl<
     type UpdateAux = AppAux<T>;
     type GraphicalAux = AppAux<T>;
     type DisplayObject = gfx::DisplayCommand;
-
-    #[inline]
-    fn update(&mut self, aux: &mut AppAux<T>) {
-        ui::update(self, aux);
-    }
 
     #[inline]
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut AppAux<T>) {
@@ -74,30 +68,9 @@ impl<
             GraphicalAux = AppAux<T>,
             DisplayObject = gfx::DisplayCommand,
         >,
-    > ui::Node for Root<T, W>
-{
-    type Event = ui::NoEvent;
-
-    #[inline]
-    fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
-        &self.node
-    }
-
-    #[inline]
-    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
-        &mut self.node
-    }
-}
-
-impl<
-        T: 'static,
-        W: ui::WidgetChildren<
-            UpdateAux = AppAux<T>,
-            GraphicalAux = AppAux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
     > ui::Element for Root<T, W>
 {
+    #[inline]
     fn common(&self) -> &ui::CommonRef {
         &self.common
     }
@@ -117,7 +90,6 @@ impl<
         Root {
             child: new(common.clone(), aux),
             common,
-            node: sinq::EventNode::new(&mut aux.master),
         }
     }
 }
@@ -175,15 +147,14 @@ pub fn run<
                 options.window_size.height as _,
             ),
         })?;
-    let mut master = Default::default();
     let mut aux = ui::Aux {
         data: AppData {
             data: aux,
             cursor: Default::default(),
         },
         theme: theme(&mut display),
-        node: sinq::EventNode::new(&mut master),
-        master,
+        id: uniq::id::next(),
+        queue: Default::default(),
     };
     let mut root = Root::new(new, &mut aux);
     let mut key_mods = ui::KeyModifiers {
@@ -254,9 +225,9 @@ pub fn run<
                 WindowEvent::CursorMoved { position, .. } => {
                     let position = position.to_logical::<f64>(scale_factor);
                     let point = gfx::Point::new(position.x as _, position.y as _);
-                    aux.node.emit_owned(
+                    aux.queue.emit(
+                        aux.id,
                         ui::WindowEvent::MouseMove(ui::ConsumableEvent::new(point)),
-                        &mut aux.master,
                     );
                 }
                 WindowEvent::MouseInput { state, button, .. } => {
@@ -276,7 +247,7 @@ pub fn run<
                         ),
                     };
 
-                    aux.node.emit_owned(event, &mut aux.master);
+                    aux.queue.emit(aux.id, event);
                 }
                 _ => {}
             },

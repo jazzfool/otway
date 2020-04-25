@@ -1,5 +1,7 @@
 use otway::{
-    app, kit, theme,
+    app, kit,
+    prelude::*,
+    theme,
     ui::{self, view::View},
 };
 
@@ -7,14 +9,17 @@ type AuxData = ();
 type Aux = app::AppAux<AuxData>;
 type AppAux = app::AppData<AuxData>;
 
+struct IncrementEvent(i32);
+
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
     let mut view = View::new(parent, aux, 0);
 
-    let btn = view.child(kit::Button::new, aux);
-    view.get_mut(btn).unwrap().set_text("Hello");
-
-    view.handle(btn, "press", |view, _, _| {
-        view.set_state(|x| *x += 1);
+    view.button_ext("Increment", aux).press(|view, aux, _| {
+        let e = IncrementEvent(view.set_state(|x| {
+            *x += 1;
+            *x
+        }));
+        view.common().emit(aux, e);
     });
 
     view

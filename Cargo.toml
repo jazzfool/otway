@@ -12,7 +12,7 @@ app = ["glutin", "reclutch/skia"]
 
 [dependencies]
 reclutch = { git = "https://github.com/jazzfool/reclutch" }
-sinq = { git = "https://github.com/jazzfool/sinq" }
+uniq = { git = "https://github.com/reclutch-nursery/uniq", features = ["id"] }
 glutin = { version = "0.24", optional = true }
 thiserror = "1.0"
 derivative = "2.1"

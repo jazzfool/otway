@@ -2,7 +2,7 @@ use {
     super::*,
     reclutch::{
         display as gfx,
-        verbgraph::{self as graph, as_any::Downcast},
+        verbgraph::{self as graph},
     },
     std::collections::HashMap,
 };
@@ -39,7 +39,7 @@ pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
     children: HashMap<u64, Box<AuxWidgetChildren<T>>>,
     state_changed: Option<Vec<StateChangedCallback<Self>>>,
     common: CommonRef,
-    node: sinq::EventNode<Self, Aux<T>, E>,
+    listener: Listener<Self, Aux<T>>,
 }
 
 impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
@@ -51,7 +51,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
             children: HashMap::new(),
             state_changed: Some(Vec::new()),
             common: CommonRef::new(parent),
-            node: sinq::EventNode::new(&mut aux.master),
+            listener: aux.listen(),
         }
     }
 
@@ -169,28 +169,16 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
                 UpdateAux = Aux<T>,
                 GraphicalAux = Aux<T>,
                 DisplayObject = gfx::DisplayCommand,
-            > + Node<Event = Eo>
-            + 'static,
-        Eo: graph::Event + 'static,
+            > + 'static,
+        Eo: 'static,
     >(
         &mut self,
         child: ChildRef<W>,
-        event: &'static str,
-        handler: impl Fn(&mut Self, &mut Aux<T>, Eo) + 'static,
+        handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
     ) {
-        if self.has(child) {
-            let node_id = self.get(child).unwrap().node_ref().id();
-            if let Some(qh) = self
-                .node
-                .get_handler_mut(node_id)
-                .and_then(|x| x.downcast_mut::<sinq::QueueHandler<Self, Aux<T>, Eo>>())
-            {
-                qh.on(event, handler);
-            } else {
-                let qh = sinq::QueueHandler::new(self.get(child).unwrap().node_ref())
-                    .and_on(event, handler);
-                self.node.add(qh);
-            }
+        let id = self.get(child).map(|x| x.common().with(|x| x.id()));
+        if let Some(id) = id {
+            self.listener.on(id, handler);
         }
     }
 
@@ -268,20 +256,6 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E>
 
     #[inline]
     fn update(&mut self, aux: &mut Aux<T>) {
-        update(self, aux);
-    }
-}
-
-impl<T: 'static, S: 'static, E: graph::Event + 'static> Node for View<T, S, E> {
-    type Event = E;
-
-    #[inline]
-    fn node_ref(&self) -> &sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
-        &self.node
-    }
-
-    #[inline]
-    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, Self::UpdateAux, Self::Event> {
-        &mut self.node
+        dispatch(self, aux, |x| &mut x.listener);
     }
 }

@@ -11,6 +11,9 @@ pub enum ButtonEvent {
     Release(gfx::Point),
 }
 
+pub struct PressEvent(pub gfx::Point);
+pub struct ReleaseEvent(pub gfx::Point);
+
 /// Simple button control.
 ///
 /// This button is labelled and has the following events;
@@ -24,27 +27,20 @@ pub struct Button<T: 'static> {
 
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
-    node: sinq::EventNode<Self, ui::Aux<T>, ButtonEvent>,
+    listener: ui::Listener<Self, ui::Aux<T>>,
 }
 
 impl<T: 'static> Button<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
-        let mut node = sinq::EventNode::new(&mut aux.master);
-
-        node.add(super::interaction_handler(
-            aux,
-            &|btn: &mut Self, aux, event| match event {
-                kit::InteractionEvent::Press(pos) => {
-                    btn.node
-                        .emit_owned(ButtonEvent::Press(pos), &mut aux.master);
-                }
-                kit::InteractionEvent::Release(pos) => {
-                    btn.node
-                        .emit_owned(ButtonEvent::Release(pos), &mut aux.master);
-                }
-                _ => {}
-            },
-        ));
+        let listener = super::interaction_handler(aux, &|btn: &mut Self, aux, event| match event {
+            kit::InteractionEvent::Press(pos) => {
+                btn.common.emit(aux, ButtonEvent::Press(pos));
+            }
+            kit::InteractionEvent::Release(pos) => {
+                btn.common.emit(aux, ButtonEvent::Release(pos));
+            }
+            _ => {}
+        });
 
         let common = ui::CommonRef::new(parent);
 
@@ -52,7 +48,7 @@ impl<T: 'static> Button<T> {
             label: kit::Label::new(common.clone(), aux),
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
             common,
-            node,
+            listener,
         }
     }
 
@@ -88,7 +84,7 @@ impl<T: 'static> Widget for Button<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
-        ui::update(self, aux);
+        ui::dispatch(self, aux, |x| &mut x.listener);
     }
 
     #[inline]
@@ -99,19 +95,5 @@ impl<T: 'static> Widget for Button<T> {
             display,
             aux,
         );
-    }
-}
-
-impl<T: 'static> ui::Node for Button<T> {
-    type Event = ButtonEvent;
-
-    #[inline]
-    fn node_ref(&self) -> &sinq::EventNode<Self, ui::Aux<T>, ButtonEvent> {
-        &self.node
-    }
-
-    #[inline]
-    fn node_mut(&mut self) -> &mut sinq::EventNode<Self, ui::Aux<T>, ButtonEvent> {
-        &mut self.node
     }
 }
