@@ -7,42 +7,35 @@
 ```rust
 type CounterState = i32;
 
-#[derive(Clone, Event)]
-enum CounterEvent {
-    #[event_key(increment)]
-    Increment,
-    #[event_key(decrement)]
-    Decrement,
-}
+struct IncrementEvent(i32);
+struct DecrementEvent(i32);
 
 fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::View<T, CounterState, CounterEvent> {
     let mut view = view::View::new(parent, /* CounterState: */ 0);
 
-    let layout = view.child(kit::VStack::new, aux);
+    let layout = view.vstack(aux);
 
-    let (count_up, count_label, count_down) =
-        (
-            // These are still owned by `view`, not `layout`.
-            view.lay(kit::Button::new, aux, &layout, None),
-            view.lay(kit::Label::new, aux, &layout, None),
-            view.lay(kit::Button::new, aux, &layout, None)
-        );
-    
-    // Handle the "press" event for the "count_up" button.
-    view.handle(count_up, "press", |view, _, _| {
-        view.set_state(|state| *state += 1);
-        view.node_ref().emit_owned(CounterEvent::Increment);
-    });
+    // powerful mix-in functions allow for elegant widget construction.
+    let incr = view.lay_button_ext("Increment", layout, None, aux)
+        .press(|view, aux, _event| {
+            // `set_state` forwards the return type.
+            aux.queue.emit_owned(IncrementEvent(view.set_state(|x| { *x += 1; x })));
+        })
+        .inner();
 
-    // Handle the "press" event for the "count_down" button.
-    view.handle(count_down, "press", |view, _, _| {
-        view.set_state(|state| *state -= 1);
-        view.node_ref().emit_owned(CounterEvent::Decrement);
-    });
+    let decr = view.lay_button_ext("Decrement", layout, None, aux)
+        .press(|view, aux, _event| {
+            aux.queue.emit_owned(DecrementEvent(view.set_state(|x| { *x -= 1; x })));
+        })
+        .inner();
 
-    // Callback whenver `set_state` is invoked.
+    let label = view.lay_label_ext("", layout, None, aux)
+        .size(42.0) // make the text bigger
+        .inner();
+
+    // Callback whenever `set_state` is invoked.
     view.state_changed(|view| {
-        view.get(count_label).set_text(format!("Count: {}", view.state().count));
+        view.get(label).set_text(format!("Count: {}", view.state()));
     });
 
     // Invoke state_changed to initialize label.
@@ -54,8 +47,10 @@ fn counter<T: 'static>(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> view::Vie
 
 ### Event Queue Synchronization
 
-In a real world application, out-of-order queue updating will rarely occur given that queues are updated as soon as an event is received by the OS, thus giving no chance for multiple events to pile up.
-However, in the rare case that this does occur, the queue system is reinforced by `sinq`, which ensures that everything is updated based on the original order that events were emitted in.
+Through much exploration, a conclusion was reached wherein some global object is required to synchronize event queues. This idea was simplified further into a global heterogenous queue.
+The implementation used is `reclutch-nursery/uniq`, which is a heterogenous adapter on top of `reclutch/event`.
+
+Given that there is a single queue, out-of-order events are impossible. Further, a thread-safe variant has been implemented, which can be used for multi-threaded UI applications.
 
 ### Parallelism
 
