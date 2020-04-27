@@ -1,6 +1,9 @@
 use {
     super::*,
-    reclutch::{display as gfx, verbgraph as graph},
+    reclutch::{
+        display as gfx,
+        verbgraph::{self as graph, as_any::Downcast},
+    },
     std::collections::HashMap,
 };
 
@@ -177,10 +180,11 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
     ) {
         if self.has(child) {
             let node_id = self.get(child).unwrap().node_ref().id();
-            if let Some(qh) = self.node.get_handler_mut(node_id).and_then(|x| {
-                x.as_any_mut()
-                    .downcast_mut::<sinq::QueueHandler<Self, Aux<T>, Eo>>()
-            }) {
+            if let Some(qh) = self
+                .node
+                .get_handler_mut(node_id)
+                .and_then(|x| x.downcast_mut::<sinq::QueueHandler<Self, Aux<T>, Eo>>())
+            {
                 qh.on(event, handler);
             } else {
                 let qh = sinq::QueueHandler::new(self.get(child).unwrap().node_ref())

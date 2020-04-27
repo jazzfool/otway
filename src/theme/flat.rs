@@ -73,7 +73,7 @@ impl<T: 'static> Theme<T> for FlatTheme {
     fn painter(&self, p: &'static str) -> Box<dyn AnyPainter<T>> {
         match p {
             painters::BUTTON => Box::new(ButtonPainter {
-                theme: Rc::clone(&self.0),
+                _theme: Rc::clone(&self.0),
             }),
             painters::LABEL => Box::new(LabelPainter {
                 theme: Rc::clone(&self.0),
@@ -95,7 +95,7 @@ impl<T: 'static> Theme<T> for FlatTheme {
 }
 
 struct ButtonPainter {
-    theme: Rc<Inner>,
+    _theme: Rc<Inner>,
 }
 
 impl<T: 'static> TypedPainter<T> for ButtonPainter {

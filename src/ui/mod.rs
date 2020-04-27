@@ -502,7 +502,7 @@ pub trait NodeExt: Widget {
         node: sinq::NodeId,
         current_rec: usize,
         length: usize,
-    ) -> Vec<sinq::EventRecord>;
+    ) -> Option<Vec<sinq::EventRecord>>;
     fn index(&self) -> Vec<sinq::NodeId>;
     fn current_record(&self) -> usize;
     fn finalize(&mut self, final_rec: usize);
@@ -518,13 +518,17 @@ where
         node: sinq::NodeId,
         current_rec: usize,
         length: usize,
-    ) -> Vec<sinq::EventRecord> {
+    ) -> Option<Vec<sinq::EventRecord>> {
         self.node_mut().set_record(Some(current_rec));
         let mut graph = self.node_mut().take();
-        graph.update_node(self, aux, node, length);
+        graph.update_node(self, aux, node, 1);
         self.node_mut().reset(graph);
         self.node_mut().set_record(None);
-        aux.master_mut().record().to_vec()
+        if aux.master_mut().record().len() != length {
+            Some(aux.master_mut().record().to_vec())
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -553,7 +557,7 @@ fn update_invoker<T: 'static>(
     node: sinq::NodeId,
     current_rec: usize,
     length: usize,
-) -> Vec<sinq::EventRecord> {
+) -> Option<Vec<sinq::EventRecord>> {
     widget.update_node(aux, node, current_rec, length)
 }
 
@@ -603,9 +607,10 @@ pub fn update<T: 'static>(
         let rec = aux.master.record().to_vec();
         sinq::update(
             &mut items,
-            aux,
             rec,
-            update_invoker::<T>,
+            |widget, node, current_rec, length| {
+                update_invoker::<T>(widget, aux, node, current_rec, length)
+            },
             update_indexer::<T>,
             update_recorder::<T>,
             update_finalizer::<T>,
@@ -620,9 +625,10 @@ pub fn update<T: 'static>(
                 GraphicalAux = Aux<T>,
                 DisplayObject = gfx::DisplayCommand,
             >],
-        aux,
         rec,
-        update_invoker::<T>,
+        |widget, node, current_rec, length| {
+            update_invoker::<T>(widget, aux, node, current_rec, length)
+        },
         update_indexer::<T>,
         update_recorder::<T>,
         update_finalizer::<T>,
