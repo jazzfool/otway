@@ -225,10 +225,8 @@ pub fn run<
                 WindowEvent::CursorMoved { position, .. } => {
                     let position = position.to_logical::<f64>(scale_factor);
                     let point = gfx::Point::new(position.x as _, position.y as _);
-                    aux.queue.emit(
-                        aux.id,
-                        ui::WindowEvent::MouseMove(ui::ConsumableEvent::new(point)),
-                    );
+                    aux.queue
+                        .emit(aux.id, ui::MouseMoveEvent(ui::ConsumableEvent::new(point)));
                 }
                 WindowEvent::MouseInput { state, button, .. } => {
                     let mouse_button = match button {
@@ -238,16 +236,22 @@ pub fn run<
                         winit_event::MouseButton::Other(x) => ui::MouseButton::Other(x),
                     };
 
-                    let event = match state {
-                        winit_event::ElementState::Pressed => ui::WindowEvent::MousePress(
-                            ui::ConsumableEvent::new((mouse_button, aux.data.cursor)),
+                    match state {
+                        winit_event::ElementState::Pressed => aux.queue.emit(
+                            aux.id,
+                            ui::MousePressEvent(ui::ConsumableEvent::new((
+                                mouse_button,
+                                aux.data.cursor,
+                            ))),
                         ),
-                        winit_event::ElementState::Released => ui::WindowEvent::MouseRelease(
-                            ui::ConsumableEvent::new((mouse_button, aux.data.cursor)),
+                        winit_event::ElementState::Released => aux.queue.emit(
+                            aux.id,
+                            ui::MouseReleaseEvent(ui::ConsumableEvent::new((
+                                mouse_button,
+                                aux.data.cursor,
+                            ))),
                         ),
                     };
-
-                    aux.queue.emit(aux.id, event);
                 }
                 _ => {}
             },

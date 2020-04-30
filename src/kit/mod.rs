@@ -5,6 +5,142 @@ pub mod label;
 
 pub use {button::*, label::*};
 
+/// The widget was pressed.
+pub struct PressEvent(pub gfx::Point);
+/// The widget was released from its press ([`PressEvent`](PressEvent)).
+pub struct ReleaseEvent(pub gfx::Point);
+/// The cursor entered the widget boundaries.
+pub struct BeginHoverEvent(pub gfx::Point);
+/// The cursor left the widget boundaries.
+pub struct EndHoverEvent(pub gfx::Point);
+
+pub enum InteractionEvent {
+    Press(gfx::Point),
+    Release(gfx::Point),
+    BeginHover(gfx::Point),
+    EndHover(gfx::Point),
+}
+
+pub fn interaction_handler<
+    T: ui::WidgetChildren<
+        UpdateAux = ui::Aux<A>,
+        GraphicalAux = ui::Aux<A>,
+        DisplayObject = gfx::DisplayCommand,
+    >,
+    A,
+>(
+    aux: &mut ui::Aux<A>,
+    callback: impl Fn(&mut T, &mut ui::Aux<A>, InteractionEvent) + Copy + 'static,
+    mask: impl Into<Option<InteractionMask>>,
+) -> ui::Listener<T, ui::Aux<A>> {
+    let mask = mask.into().unwrap_or(Default::default());
+    aux.listen()
+        .and_on(
+            aux.id,
+            move |obj: &mut T, aux, event: &ui::MousePressEvent| {
+                if !mask.press {
+                    return;
+                }
+                let bounds = obj.bounds();
+                if let Some(&(_, pos)) = event
+                    .0
+                    .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
+                {
+                    obj.common().with(|x| x.interaction.pressed = true);
+                    callback(obj, aux, InteractionEvent::Press(pos));
+                }
+            },
+        )
+        .and_on(
+            aux.id,
+            move |obj: &mut T, aux, event: &ui::MouseReleaseEvent| {
+                if !mask.release {
+                    return;
+                }
+                let bounds = obj.bounds();
+                if let Some(&(_, pos)) = event
+                    .0
+                    .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
+                {
+                    obj.common().with(|x| x.interaction.pressed = false);
+                    callback(obj, aux, InteractionEvent::Release(pos));
+                }
+            },
+        )
+        .and_on(
+            aux.id,
+            move |obj: &mut T, aux, event: &ui::MouseMoveEvent| {
+                if !mask.begin_hover && !mask.end_hover {
+                    return;
+                }
+                let bounds = obj.bounds();
+                let was_hovered = obj.common().with(|x| x.interaction.hovered);
+                let pos = if let Some(&pos) = event.0.with(|&pos| bounds.contains(pos)) {
+                    obj.common().with(|x| x.interaction.hovered = true);
+                    pos
+                } else {
+                    obj.common().with(|x| x.interaction.hovered = false);
+                    event.0.get().clone()
+                };
+
+                if was_hovered != obj.common().with(|x| x.interaction.hovered) {
+                    if was_hovered {
+                        callback(obj, aux, InteractionEvent::EndHover(pos));
+                    } else {
+                        callback(obj, aux, InteractionEvent::BeginHover(pos));
+                    }
+                }
+            },
+        )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InteractionMask {
+    pub press: bool,
+    pub release: bool,
+    pub begin_hover: bool,
+    pub end_hover: bool,
+}
+
+impl Default for InteractionMask {
+    fn default() -> Self {
+        InteractionMask {
+            press: true,
+            release: true,
+            begin_hover: true,
+            end_hover: true,
+        }
+    }
+}
+
+pub fn interaction_forwarder<T: ui::Element, A: 'static>(
+    mask: impl Into<Option<InteractionMask>>,
+) -> impl Fn(&mut T, &mut ui::Aux<A>, InteractionEvent) + Copy {
+    let mask = mask.into().unwrap_or(Default::default());
+    move |obj, aux, event| match event {
+        InteractionEvent::Press(pos) => {
+            if mask.press {
+                obj.common().emit(aux, PressEvent(pos));
+            }
+        }
+        InteractionEvent::Release(pos) => {
+            if mask.release {
+                obj.common().emit(aux, ReleaseEvent(pos));
+            }
+        }
+        InteractionEvent::BeginHover(pos) => {
+            if mask.begin_hover {
+                obj.common().emit(aux, BeginHoverEvent(pos));
+            }
+        }
+        InteractionEvent::EndHover(pos) => {
+            if mask.end_hover {
+                obj.common().emit(aux, EndHoverEvent(pos));
+            }
+        }
+    }
+}
+
 /// Convenience builder-like utility around the label widget.
 ///
 /// Ensure that `inner()` is invoked once customization is finished so
@@ -264,77 +400,4 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
     ) -> LabelExtRef<'a, T, S> {
         LabelExtRef(self.lay_label(text, layout, config, aux), self)
     }
-}
-
-pub enum InteractionEvent {
-    Press(gfx::Point),
-    Release(gfx::Point),
-    BeginHover(gfx::Point),
-    EndHover(gfx::Point),
-}
-
-pub fn interaction_handler<
-    T: ui::WidgetChildren<
-        UpdateAux = ui::Aux<A>,
-        GraphicalAux = ui::Aux<A>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    A,
->(
-    aux: &mut ui::Aux<A>,
-    _callback: &'static (impl Fn(&mut T, &mut ui::Aux<A>, InteractionEvent) + 'static),
-) -> ui::Listener<T, ui::Aux<A>> {
-    aux.listen()
-    /*sinq::QueueHandler::new(&aux.node)
-    .and_on(
-        "mouse_press",
-        move |obj: &mut T, aux: &mut ui::Aux<A>, event| {
-            let bounds = obj.bounds();
-            if let Some(&(_, pos)) = event
-                .unwrap_as_mouse_press()
-                .unwrap()
-                .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
-            {
-                obj.common().with(|x| x.interaction.pressed = true);
-                callback(obj, aux, InteractionEvent::Press(pos));
-            }
-        },
-    )
-    .and_on(
-        "mouse_release",
-        move |obj: &mut T, aux: &mut ui::Aux<A>, event| {
-            let bounds = obj.bounds();
-            if let Some(&(_, pos)) = event
-                .unwrap_as_mouse_release()
-                .unwrap()
-                .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
-            {
-                obj.common().with(|x| x.interaction.pressed = false);
-                callback(obj, aux, InteractionEvent::Release(pos));
-            }
-        },
-    )
-    .and_on(
-        "mouse_move",
-        move |obj: &mut T, aux: &mut ui::Aux<A>, event| {
-            let bounds = obj.bounds();
-            let was_hovered = obj.common().with(|x| x.interaction.hovered);
-            let event = event.unwrap_as_mouse_move().unwrap();
-            let pos = if let Some(&pos) = event.with(|&pos| bounds.contains(pos)) {
-                obj.common().with(|x| x.interaction.hovered = true);
-                pos
-            } else {
-                obj.common().with(|x| x.interaction.hovered = false);
-                event.get().clone()
-            };
-
-            if was_hovered != obj.common().with(|x| x.interaction.hovered) {
-                if was_hovered {
-                    callback(obj, aux, InteractionEvent::EndHover(pos));
-                } else {
-                    callback(obj, aux, InteractionEvent::BeginHover(pos));
-                }
-            }
-        },
-    )*/
 }

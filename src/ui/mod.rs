@@ -29,6 +29,10 @@ impl<T: 'static> Aux<T> {
     pub fn listen<O: 'static, A: 'static>(&self) -> Listener<O, A> {
         Listener(Some(self.queue.listen()))
     }
+
+    pub fn emit<E: 'static>(&self, id: u64, e: E) {
+        self.queue.emit(id, e);
+    }
 }
 
 /// Listener compatible with the [`dispatch`](dispatch) function.
@@ -36,19 +40,44 @@ impl<T: 'static> Aux<T> {
 /// Created via [`listen`](Aux::listen).
 pub struct Listener<O: 'static, A: 'static>(Option<uniq::rc::EventListener<O, A>>);
 
-impl<O: 'static, A: 'static> Deref for Listener<O, A> {
-    type Target = uniq::rc::EventListener<O, A>;
-
-    #[inline]
-    fn deref(&self) -> &uniq::rc::EventListener<O, A> {
-        self.0.as_ref().unwrap()
+impl<O: 'static, A: 'static> Listener<O, A> {
+    /// Adds a handler to `self` and returns `Self`.
+    ///
+    /// `id` marks the source ID. The type of the third parameter of the handler is the event type.
+    /// Both of these will be used to match correct events.
+    ///
+    /// If the ID and event type are already being handled, the handler will be replaced.
+    pub fn and_on<E: 'static>(
+        mut self,
+        id: u64,
+        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
+    ) -> Self {
+        self.0.as_mut().unwrap().on(id, handler);
+        self
     }
-}
 
-impl<O: 'static, A: 'static> DerefMut for Listener<O, A> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut uniq::rc::EventListener<O, A> {
-        self.0.as_mut().unwrap()
+    /// Adds a handler.
+    ///
+    /// `id` marks the source ID. The type of the third parameter of the handler is the event type.
+    /// Both of these will be used to match correct events.
+    ///
+    /// If the ID and event type are already being handled, the handler will be replaced.
+    pub fn on<E: 'static>(
+        &mut self,
+        id: u64,
+        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
+    ) -> (u64, std::any::TypeId) {
+        self.0.as_mut().unwrap().on(id, handler)
+    }
+
+    /// Removes a handler which matches a specific `id` and event type.
+    pub fn remove<E: 'static>(&mut self, id: u64) -> bool {
+        self.0.as_mut().unwrap().remove::<E>(id)
+    }
+
+    /// Returns `true` if there is a handler handling `id` and event type `E`.
+    pub fn contains<E: 'static>(&self, id: u64) -> bool {
+        self.0.as_ref().unwrap().contains::<E>(id)
     }
 }
 
@@ -125,28 +154,18 @@ impl<T> Clone for ConsumableEvent<T> {
     }
 }
 
-/// An event emitted by the OS relating to the window.
-#[derive(Clone, Event)]
-pub enum WindowEvent {
-    /// A mouse button was pressed down.
-    #[event_key(mouse_press)]
-    MousePress(ConsumableEvent<(MouseButton, gfx::Point)>),
-    /// A mouse button was releasd. Always paired with a prior `MousePress`.
-    #[event_key(mouse_release)]
-    MouseRelease(ConsumableEvent<(MouseButton, gfx::Point)>),
-    /// The mouse/cursor was moved.
-    #[event_key(mouse_move)]
-    MouseMove(ConsumableEvent<gfx::Point>),
-    /// A keyboard key was pressed down.
-    #[event_key(key_press)]
-    KeyPress(ConsumableEvent<KeyInput>),
-    /// A keyboard key was released. Always paired with a prior `KeyPress`.
-    #[event_key(key_release)]
-    KeyRelease(ConsumableEvent<KeyInput>),
-    /// Printable character was typed. Related to string input.
-    #[event_key(text)]
-    Text(ConsumableEvent<char>),
-}
+/// A mouse button was pressed down.
+pub struct MousePressEvent(pub ConsumableEvent<(MouseButton, gfx::Point)>);
+/// A mouse button was releasd. Always paired with a prior `MousePressEvent`.
+pub struct MouseReleaseEvent(pub ConsumableEvent<(MouseButton, gfx::Point)>);
+/// The mouse/cursor was moved.
+pub struct MouseMoveEvent(pub ConsumableEvent<gfx::Point>);
+/// A keyboard key was pressed down.
+pub struct KeyPressEvent(pub ConsumableEvent<KeyInput>);
+/// A keyboard key was released. Always paired with a prior `KeyPressEvent`.
+pub struct KeyReleaseEvent(pub ConsumableEvent<KeyInput>);
+/// Printable character was typed. Related to string input.
+pub struct TextEvent(pub ConsumableEvent<char>);
 
 /// Clickable button on a mouse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -157,6 +176,7 @@ pub enum MouseButton {
     Other(u8),
 }
 
+// it's either this or `mem::transmute`
 macro_rules! keyboard_enum {
     ($name:ident as $other:ty {
         $($v:ident),*$(,)?
@@ -363,10 +383,18 @@ pub struct CommonRef(Rc<Cell<Option<Common>>>);
 
 impl CommonRef {
     /// Creates a new `CommonRef` as an implied child of a `parent`.
-    //#[allow(clippy::wrong_self_convention)]
     #[inline]
     pub fn new(parent: impl Into<Option<CommonRef>>) -> Self {
         CommonRef(Rc::new(Cell::new(Some(Common::new(parent)))))
+    }
+
+    // Creates a new `CommonRef` as an implied child of a `parent` with some additional `info`.
+    #[inline]
+    pub fn with_info(
+        parent: impl Into<Option<CommonRef>>,
+        info: impl Into<Option<Box<dyn std::any::Any>>>,
+    ) -> Self {
+        CommonRef(Rc::new(Cell::new(Some(Common::with_info(parent, info)))))
     }
 
     /// Mutably access the inner `Common` through a closure.
@@ -386,6 +414,8 @@ impl CommonRef {
         &self.0
     }
 
+    /// Emits an event to the global queue on the behalf of `common.id()`.
+    #[inline]
     pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
         self.with(|x| x.emit(aux, event));
     }
@@ -415,7 +445,11 @@ impl Interaction {
 /// The core, widget-agnostic object.
 /// This should be stored within widgets via `Element`.
 /// It handles the widget rectangle, parent, and other fundamental things.
-#[derive(Clone)]
+///
+/// Moreover, it can also possibly contain additional information (accessed through `info()/_mut`).
+/// The information is stored in an `Option<Box<dyn Any>>`. It serves the purpose of passing information
+/// between arbitrary widgets without using event queues as a means of data transfer.
+/// This information can be initialized (only once) by constructing `with_info`.
 pub struct Common {
     pub(crate) interaction: Interaction,
     visible: bool,
@@ -424,12 +458,24 @@ pub struct Common {
     parent: Option<CommonRef>,
     cmds: CommandGroup,
     id: u64,
+    info: Option<Box<dyn std::any::Any>>,
 }
 
 impl Common {
-    /// Creates a new `Common`.
-    /// If `None` is given to `parent`, it implies that this widget is a root widget.
+    /// Creates a new `Common` without additional information.
+    #[inline]
     pub fn new(parent: impl Into<Option<CommonRef>>) -> Self {
+        Common::with_info(parent, None)
+    }
+
+    /// Creates a new `Common` with additional `info`.
+    /// If `None` is given to `parent`, it implies that this widget is a root widget.
+    ///
+    /// If passing `None` to `info` then use [`Common::new`](Common::new) instead.
+    pub fn with_info(
+        parent: impl Into<Option<CommonRef>>,
+        info: impl Into<Option<Box<dyn std::any::Any>>>,
+    ) -> Self {
         Common {
             interaction: Interaction::default(),
             visible: true,
@@ -438,6 +484,7 @@ impl Common {
             parent: parent.into(),
             cmds: Default::default(),
             id: uniq::id::next(),
+            info: info.into(),
         }
     }
 
@@ -501,23 +548,45 @@ impl Common {
         self.parent.clone()
     }
 
+    /// Returns the display command group immutably.
     #[inline]
     pub fn command_group(&self) -> &CommandGroup {
         &self.cmds
     }
 
+    /// Returns the display command group mutably.
     #[inline]
     pub fn command_group_mut(&mut self) -> &mut CommandGroup {
         &mut self.cmds
     }
 
+    /// Returns the unique ID assigned to this `Common`.
+    /// It is unique across all `Common` and is primarily used as an event source ID for the global queue.
     #[inline]
     pub fn id(&self) -> u64 {
         self.id
     }
 
+    /// Emits an event to the global queue on the behalf of [`id`](Common::id).
+    #[inline]
     pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
         aux.queue.emit(self.id, event);
+    }
+
+    /// Returns the possible stored information immutably.
+    ///
+    /// If the information has not been provided, or the downcast type mismatches, `None` is returned.
+    #[inline]
+    pub fn info<T: 'static>(&self) -> Option<&T> {
+        self.info.as_ref()?.as_ref().downcast_ref::<T>()
+    }
+
+    /// Returns the possible stored information mutably.
+    ///
+    /// If the information has not been provided, or the downcast type mismatches, `None` is returned.
+    #[inline]
+    pub fn info_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.info.as_mut()?.as_mut().downcast_mut::<T>()
     }
 }
 
@@ -556,14 +625,14 @@ pub fn propagate_draw<T: 'static>(
     }
 }
 
-/// An event that will never be emitted.
-#[derive(Event, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[event_key(none)]
-pub struct NoEvent(/* to prevent instantiation */ ());
-
 /// UI element trait, viewed as an extension of `Widget`.
 pub trait Element: Widget + AnyElement {
     fn common(&self) -> &CommonRef;
+
+    #[inline]
+    fn id(&self) -> u64 {
+        self.common().with(|x| x.id())
+    }
 }
 
 /// Conversions for `Element`s, from `Self` to various forms of `std::any::Any`.

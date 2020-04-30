@@ -1,11 +1,4 @@
-use {
-    super::*,
-    reclutch::{
-        display as gfx,
-        verbgraph::{self as graph},
-    },
-    std::collections::HashMap,
-};
+use {super::*, reclutch::display as gfx, std::collections::HashMap};
 
 /// Holds a strongly-typed ID of a child within a view.
 #[derive(Derivative)]
@@ -33,7 +26,7 @@ type StateChangedCallback<T> = Box<dyn Fn(&mut T)>;
 /// this can also be used for that.
 /// - `E`; Event type emitted by the event node. By default, this is `NoEvent` (i.e. no events will be emitted).
 /// This can be overriden to be any static type that inherits `reclutch::verbgraph::Event`.
-pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
+pub struct View<T: 'static, S: 'static> {
     state: S,
     next_child: u64,
     children: HashMap<u64, Box<AuxWidgetChildren<T>>>,
@@ -42,7 +35,7 @@ pub struct View<T: 'static, S: 'static, E: graph::Event + 'static = NoEvent> {
     listener: Listener<Self, Aux<T>>,
 }
 
-impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
+impl<T: 'static, S: 'static> View<T, S> {
     /// Creates a new view with an initial state.
     pub fn new(parent: CommonRef, aux: &mut Aux<T>, state: S) -> Self {
         View {
@@ -182,6 +175,18 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
         }
     }
 
+    /// Returns an immutable reference to the inner listener.
+    #[inline]
+    pub fn listener(&self) -> &Listener<Self, Aux<T>> {
+        &self.listener
+    }
+
+    /// Returns a mutable reference to the inner listener.
+    #[inline]
+    pub fn listener_mut(&mut self) -> &mut Listener<Self, Aux<T>> {
+        &mut self.listener
+    }
+
     /// Return an immutable reference to the state.
     ///
     /// To mutate the state, use `set_state`.
@@ -212,7 +217,7 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> View<T, S, E> {
     }
 }
 
-impl<T: 'static, S: 'static, E: graph::Event + 'static> WidgetChildren for View<T, S, E> {
+impl<T: 'static, S: 'static> WidgetChildren for View<T, S> {
     fn children(
         &self,
     ) -> Vec<
@@ -238,13 +243,13 @@ impl<T: 'static, S: 'static, E: graph::Event + 'static> WidgetChildren for View<
     }
 }
 
-impl<T: 'static, S: 'static, E: graph::Event + 'static> Element for View<T, S, E> {
+impl<T: 'static, S: 'static> Element for View<T, S> {
     fn common(&self) -> &CommonRef {
         &self.common
     }
 }
 
-impl<T: 'static, S: 'static, E: graph::Event + 'static> Widget for View<T, S, E> {
+impl<T: 'static, S: 'static> Widget for View<T, S> {
     type UpdateAux = Aux<T>;
     type GraphicalAux = Aux<T>;
     type DisplayObject = gfx::DisplayCommand;

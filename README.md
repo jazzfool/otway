@@ -54,16 +54,16 @@ Given that there is a single queue, out-of-order events are impossible. Further,
 
 ### Parallelism
 
-At some point, Otway may internally move from `sinq` to [`revenq`](https://github.com/YZITE/revenq), or parallel queue updating may be implemented in `sinq`.
-Either way, hopefully there will be some multi-threading introduced to the update mechanisms.
+Perhaps in the future, `uniq` may adopt `revenq` as an additional layer of abstraction for `reclutch/event` and subsequently implement parallel updating. Currently the code uses the non-thread-safe variant of the `uniq` structures, however this can easily be changed thanks to the thin wrappers around `uniq` types present in Otway.
 
-There are no plans for moving rendering code to a separate thread, given that `winit` schedules repaints excellently already.
+There are no plans for moving rendering code to a separate thread, given that `winit` coordinates repaints with the OS (during resizing, etc.) excellently already.
+However, at some point, the partial repainting may be implemented if the performance pay-off is big enough.
 
 ### `View` or `Widget`?
 
 If you need custom rendering or custom input handling, use `Widget`.
 
-If you want to compose widgets to make a larger UI, use `View`.
+If you want to compose widgets to make a larger UI, use `View`. `View` by itself actually implemented `Widget`, but allows for fully dynamic children.
 
 ### `Widget`s have no Middleman
 
@@ -73,7 +73,7 @@ If you want to compose widgets to make a larger UI, use `View`.
 
 ### Full and Extensible Theming
 
-Widgets are 100% rendered by themes. Further than that, themes are stringly-typed and composable, meaning you can extend an existing theme to also cover your own custom widgets.
+Widgets are 100% rendered by themes. Further than that, themes are stringly-typed and composable, meaning you can extend or override any part of an existing theme to also cover your own custom widgets.
 
 ### Open-ended Windowing and Rendering
 

@@ -3,22 +3,7 @@ use {
     reclutch::{display as gfx, widget::Widget},
 };
 
-#[derive(Event, Debug, Clone, Copy, PartialEq)]
-pub enum ButtonEvent {
-    #[event_key(press)]
-    Press(gfx::Point),
-    #[event_key(release)]
-    Release(gfx::Point),
-}
-
-pub struct PressEvent(pub gfx::Point);
-pub struct ReleaseEvent(pub gfx::Point);
-
-/// Simple button control.
-///
-/// This button is labelled and has the following events;
-/// - `press`; The button was pressed.
-/// - `release`; The button was released from the press state. Always paired with a prior `press`.
+/// Simple labelled button control which emits interaction events.
 #[derive(WidgetChildren)]
 #[widget_children_trait(ui::WidgetChildren)]
 pub struct Button<T: 'static> {
@@ -32,15 +17,7 @@ pub struct Button<T: 'static> {
 
 impl<T: 'static> Button<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
-        let listener = super::interaction_handler(aux, &|btn: &mut Self, aux, event| match event {
-            kit::InteractionEvent::Press(pos) => {
-                btn.common.emit(aux, ButtonEvent::Press(pos));
-            }
-            kit::InteractionEvent::Release(pos) => {
-                btn.common.emit(aux, ButtonEvent::Release(pos));
-            }
-            _ => {}
-        });
+        let listener = kit::interaction_handler(aux, kit::interaction_forwarder(None), None);
 
         let common = ui::CommonRef::new(parent);
 
