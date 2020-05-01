@@ -588,6 +588,29 @@ impl Common {
     pub fn info_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.info.as_mut()?.as_mut().downcast_mut::<T>()
     }
+
+    /// Returns `true` if there is additional information matching the given type, otherwise `false`.
+    #[inline]
+    pub fn info_is_type<T: 'static>(&self) -> bool {
+        self.info
+            .as_ref()
+            .map(|x| x.type_id() == std::any::TypeId::of::<T>())
+            .unwrap_or(false)
+    }
+
+    /// Performs an upward search of the (grand)parents using a given predicate and returns a possible match.
+    /// The search will continue upwards until a match is found or the root widget (which has no parent) is reached.
+    ///
+    /// Note: This does not consider `self`.
+    pub fn find_parent(&self, pred: impl Fn(&Common) -> bool) -> Option<CommonRef> {
+        self.parent().and_then(|x| {
+            if x.with(|x| pred(x)) {
+                Some(x)
+            } else {
+                x.with(|x| x.find_parent(pred))
+            }
+        })
+    }
 }
 
 /// Recursively propagate the `update` method.
