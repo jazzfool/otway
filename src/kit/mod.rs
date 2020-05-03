@@ -153,7 +153,7 @@ pub struct LabelExtRef<'a, T: 'static, S: 'static>(
 impl<'a, T: 'static, S: 'static> LabelExtRef<'a, T, S> {
     /// Consumes `self` and returns the inner [`ChildRef`](ui::view::ChildRef).
     #[inline]
-    pub fn inner(self) -> ui::view::ChildRef<Label<T>> {
+    pub fn into_ref(self) -> ui::view::ChildRef<Label<T>> {
         self.0
     }
 

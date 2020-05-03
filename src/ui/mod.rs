@@ -30,8 +30,8 @@ impl<T: 'static> Aux<T> {
         Listener(Some(self.queue.listen()))
     }
 
-    pub fn emit<E: 'static>(&self, id: u64, e: E) {
-        self.queue.emit(id, e);
+    pub fn emit<E: 'static>(&self, id: &impl Id, e: E) {
+        self.queue.emit(id.id(), e);
     }
 }
 
@@ -374,6 +374,51 @@ keyboard_enum! {
     }
 }
 
+/// Partial function application; returns a closure that fills in one additional parameter in order to
+/// conform to standard widget constructor signature.
+pub fn f1<
+    A,
+    P,
+    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
+>(
+    a: impl FnOnce(CommonRef, &mut A, P) -> W,
+    p: P,
+) -> impl FnOnce(CommonRef, &mut A) -> W {
+    move |x, y| a(x, y, p)
+}
+
+/// Partial function application; returns a closure that fills in two additional parameters in order to
+/// conform to standard widget constructor signature.
+pub fn f2<
+    A,
+    P1,
+    P2,
+    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
+>(
+    a: impl FnOnce(CommonRef, &mut A, P1, P2) -> W,
+    p1: P1,
+    p2: P2,
+) -> impl FnOnce(CommonRef, &mut A) -> W {
+    move |x, y| a(x, y, p1, p2)
+}
+
+/// Partial function application; returns a closure that fills in three additional parameters in order to
+/// conform to standard widget constructor signature.
+pub fn f3<
+    A,
+    P1,
+    P2,
+    P3,
+    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
+>(
+    a: impl FnOnce(CommonRef, &mut A, P1, P2, P3) -> W,
+    p1: P1,
+    p2: P2,
+    p3: P3,
+) -> impl FnOnce(CommonRef, &mut A) -> W {
+    move |x, y| a(x, y, p1, p2, p3)
+}
+
 /// Helper type to store a counted reference to a `Common`, or in other words, a reference to the core of a widget type (not the widget type itself).
 ///
 /// The reference type provides `RefCell`-like semantics using `Cell`, reducing the overhead to only `Rc` instead of `Rc` + `RefCell`.
@@ -560,13 +605,6 @@ impl Common {
         &mut self.cmds
     }
 
-    /// Returns the unique ID assigned to this `Common`.
-    /// It is unique across all `Common` and is primarily used as an event source ID for the global queue.
-    #[inline]
-    pub fn id(&self) -> u64 {
-        self.id
-    }
-
     /// Emits an event to the global queue on the behalf of [`id`](Common::id).
     #[inline]
     pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
@@ -601,15 +639,35 @@ impl Common {
     /// Performs an upward search of the (grand)parents using a given predicate and returns a possible match.
     /// The search will continue upwards until a match is found or the root widget (which has no parent) is reached.
     ///
+    /// `max_distance` is the maximum distance that the search will go. This can be `None` or a `usize`.
+    /// For example, `max_distance: 3` will only search up to 3 parents. The fourth grandparent and onwards will not be searched.
+    ///
     /// Note: This does not consider `self`.
-    pub fn find_parent(&self, pred: impl Fn(&Common) -> bool) -> Option<CommonRef> {
-        self.parent().and_then(|x| {
-            if x.with(|x| pred(x)) {
-                Some(x)
-            } else {
-                x.with(|x| x.find_parent(pred))
-            }
-        })
+    pub fn find_parent(
+        &self,
+        mut pred: impl FnMut(&Common) -> bool,
+        max_distance: impl Into<Option<usize>> + Copy,
+    ) -> Option<CommonRef> {
+        if max_distance.into().map(|x| x == 0).unwrap_or(false) {
+            None
+        } else {
+            self.parent().and_then(move |x| {
+                if x.with(|x| pred(x)) {
+                    Some(x)
+                } else {
+                    x.with(|x| x.find_parent(pred, max_distance.into().map(|x| x - 1)))
+                }
+            })
+        }
+    }
+}
+
+impl Id for Common {
+    /// Returns the unique ID assigned to this `Common`.
+    /// It is unique across all `Common` and is primarily used as an event source ID for the global queue.
+    #[inline]
+    fn id(&self) -> u64 {
+        self.id
     }
 }
 
@@ -648,10 +706,23 @@ pub fn propagate_draw<T: 'static>(
     }
 }
 
+pub trait Id {
+    fn id(&self) -> u64;
+}
+
+impl Id for u64 {
+    #[inline]
+    fn id(&self) -> u64 {
+        *self
+    }
+}
+
 /// UI element trait, viewed as an extension of `Widget`.
 pub trait Element: Widget + AnyElement {
     fn common(&self) -> &CommonRef;
+}
 
+impl<E: Element + ?Sized> Id for E {
     #[inline]
     fn id(&self) -> u64 {
         self.common().with(|x| x.id())

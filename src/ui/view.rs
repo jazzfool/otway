@@ -13,7 +13,14 @@ use {super::*, reclutch::display as gfx, std::collections::HashMap};
 #[derivative(PartialOrd(bound = ""))]
 #[derivative(Ord(bound = ""))]
 #[derivative(Hash(bound = ""))]
-pub struct ChildRef<W>(u64, std::marker::PhantomData<W>);
+pub struct ChildRef<W>(u64, u64, std::marker::PhantomData<W>);
+
+impl<W> Id for ChildRef<W> {
+    #[inline]
+    fn id(&self) -> u64 {
+        self.1
+    }
+}
 
 type StateChangedCallback<T> = Box<dyn Fn(&mut T)>;
 
@@ -63,7 +70,16 @@ impl<T: 'static, S: 'static> View<T, S> {
         self.children
             .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
         self.next_child += 1;
-        ChildRef(self.next_child - 1, Default::default())
+        ChildRef(
+            self.next_child - 1,
+            self.children
+                .get(&(self.next_child - 1))
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .id(),
+            Default::default(),
+        )
     }
 
     /// Creates a child and makes it a layout child of another widget.
@@ -84,7 +100,11 @@ impl<T: 'static, S: 'static> View<T, S> {
     ) -> ChildRef<W> {
         self.children
             .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
-        let child = ChildRef(self.next_child, Default::default());
+        let child = ChildRef(
+            self.next_child,
+            self.children.get(&self.next_child).as_ref().unwrap().id(),
+            Default::default(),
+        );
         self.next_child += 1;
         let common = self.get::<W>(child).unwrap().common().clone();
         if let Some(layout) = self.get_mut(layout) {
