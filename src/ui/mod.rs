@@ -2,7 +2,7 @@ pub mod view;
 
 use {
     crate::theme::Theme,
-    reclutch::{display as gfx, widget::Widget},
+    reclutch::display as gfx,
     std::{
         cell::Cell,
         ops::{Deref, DerefMut},
@@ -376,46 +376,31 @@ keyboard_enum! {
 
 /// Partial function application; returns a closure that fills in one additional parameter in order to
 /// conform to standard widget constructor signature.
-pub fn f1<
-    A,
-    P,
-    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
->(
-    a: impl FnOnce(CommonRef, &mut A, P) -> W,
+pub fn f1<T, P, W: WidgetChildren<T>>(
+    a: impl FnOnce(CommonRef, &mut Aux<T>, P) -> W,
     p: P,
-) -> impl FnOnce(CommonRef, &mut A) -> W {
+) -> impl FnOnce(CommonRef, &mut Aux<T>) -> W {
     move |x, y| a(x, y, p)
 }
 
 /// Partial function application; returns a closure that fills in two additional parameters in order to
 /// conform to standard widget constructor signature.
-pub fn f2<
-    A,
-    P1,
-    P2,
-    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
->(
-    a: impl FnOnce(CommonRef, &mut A, P1, P2) -> W,
+pub fn f2<T, P1, P2, W: WidgetChildren<T>>(
+    a: impl FnOnce(CommonRef, &mut Aux<T>, P1, P2) -> W,
     p1: P1,
     p2: P2,
-) -> impl FnOnce(CommonRef, &mut A) -> W {
+) -> impl FnOnce(CommonRef, &mut Aux<T>) -> W {
     move |x, y| a(x, y, p1, p2)
 }
 
 /// Partial function application; returns a closure that fills in three additional parameters in order to
 /// conform to standard widget constructor signature.
-pub fn f3<
-    A,
-    P1,
-    P2,
-    P3,
-    W: WidgetChildren<UpdateAux = A, GraphicalAux = A, DisplayObject = gfx::DisplayCommand>,
->(
-    a: impl FnOnce(CommonRef, &mut A, P1, P2, P3) -> W,
+pub fn f3<T, P1, P2, P3, W: WidgetChildren<T>>(
+    a: impl FnOnce(CommonRef, &mut Aux<T>, P1, P2, P3) -> W,
     p1: P1,
     p2: P2,
     p3: P3,
-) -> impl FnOnce(CommonRef, &mut A) -> W {
+) -> impl FnOnce(CommonRef, &mut Aux<T>) -> W {
     move |x, y| a(x, y, p1, p2, p3)
 }
 
@@ -465,6 +450,15 @@ impl CommonRef {
         self.with(|x| x.emit(aux, event));
     }
 }
+
+impl PartialEq for CommonRef {
+    #[inline]
+    fn eq(&self, other: &CommonRef) -> bool {
+        self.with(|x| x.id()) == other.with(|x| x.id())
+    }
+}
+
+impl Eq for CommonRef {}
 
 /// Contains the interaction state for a single widget.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -672,15 +666,8 @@ impl Id for Common {
 }
 
 /// Recursively propagate the `update` method.
-pub fn propagate_update<T: 'static>(
-    widget: &mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    aux: &mut Aux<T>,
-) {
-    for child in widget.children_mut() {
+pub fn propagate_update<T: 'static>(widget: &mut dyn WidgetChildren<T>, aux: &mut Aux<T>) {
+    for child in widget.children_mut().into_iter().rev() {
         propagate_update(child, aux);
     }
 
@@ -689,11 +676,7 @@ pub fn propagate_update<T: 'static>(
 
 /// Recursively propagate the `draw` method.
 pub fn propagate_draw<T: 'static>(
-    widget: &mut dyn WidgetChildren<
-        UpdateAux = Aux<T>,
-        GraphicalAux = Aux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
+    widget: &mut dyn WidgetChildren<T>,
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
 ) {
@@ -701,7 +684,7 @@ pub fn propagate_draw<T: 'static>(
         widget.draw(display, aux);
     }
 
-    for child in widget.children_mut().into_iter().rev() {
+    for child in widget.children_mut() {
         propagate_draw(child, display, aux);
     }
 }
@@ -718,8 +701,21 @@ impl Id for u64 {
 }
 
 /// UI element trait, viewed as an extension of `Widget`.
-pub trait Element: Widget + AnyElement {
+pub trait Element: AnyElement {
+    type Aux;
+
     fn common(&self) -> &CommonRef;
+
+    #[inline]
+    fn bounds(&self) -> gfx::Rect {
+        self.common().with(|x| x.rect())
+    }
+
+    #[inline]
+    fn update(&mut self, _aux: &mut Aux<Self::Aux>) {}
+
+    #[inline]
+    fn draw(&mut self, _display: &mut dyn gfx::GraphicsDisplay, _aux: &mut Aux<Self::Aux>) {}
 }
 
 impl<E: Element + ?Sized> Id for E {
@@ -742,7 +738,7 @@ pub trait AnyElement {
     fn as_any_box(self: Box<Self>) -> Box<dyn std::any::Any>;
 }
 
-impl<T: Element + 'static> AnyElement for T {
+impl<E: Element + 'static> AnyElement for E {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -757,32 +753,14 @@ impl<T: Element + 'static> AnyElement for T {
 }
 
 /// Altered version of `reclutch::widget::WidgetChildren` incorporating `Element`.
-///
-/// Refrain from implementing manually, instead use `#[derive(WidgetChildren] #[widget_children_trait(otway::ui::WidgetChildren)]`
-pub trait WidgetChildren: Element + 'static {
+pub trait WidgetChildren<T>: Element<Aux = T> + 'static {
     /// Returns a `Vec` of dynamic immutable children.
-    fn children(
-        &self,
-    ) -> Vec<
-        &dyn WidgetChildren<
-            UpdateAux = Self::UpdateAux,
-            GraphicalAux = Self::GraphicalAux,
-            DisplayObject = Self::DisplayObject,
-        >,
-    > {
+    fn children(&self) -> Vec<&dyn WidgetChildren<T>> {
         Vec::new()
     }
 
     /// Returns a `Vec` of dynamic mutable children.
-    fn children_mut(
-        &mut self,
-    ) -> Vec<
-        &mut dyn WidgetChildren<
-            UpdateAux = Self::UpdateAux,
-            GraphicalAux = Self::GraphicalAux,
-            DisplayObject = Self::DisplayObject,
-        >,
-    > {
+    fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>> {
         Vec::new()
     }
 }
@@ -790,23 +768,46 @@ pub trait WidgetChildren: Element + 'static {
 /// Helper type; `WidgetChildren` and `Aux`, with a given additional data type.
 ///
 /// This reflects the primary widget type prevalent in the API.
-pub type AuxWidgetChildren<T> = dyn WidgetChildren<
-    UpdateAux = Aux<T>,
-    GraphicalAux = Aux<T>,
-    DisplayObject = gfx::DisplayCommand,
->;
+pub type AuxWidgetChildren<T> = dyn WidgetChildren<T>;
 
-/// Layout trait for pushing and removing widgets to a layout.
-pub trait Layout: WidgetChildren {
+/// Convenience macro to implement `WidgetChildren` by taking a comma-separated list of child widgets as struct fields.
+///
+/// This macro aims to be as trivial and transparent as possible, that is to say, it impedes as little as possible on
+/// code completion and other tooling.
+#[macro_export]
+macro_rules! children {
+    (for <$t:ty>; $($child:ident),*$(,)?) => {
+        fn children(&self) -> Vec<&dyn $crate::ui::WidgetChildren<$t>> {
+            vec![$(&self.$child),*]
+        }
+
+        fn children_mut(&mut self) -> Vec<&mut dyn $crate::ui::WidgetChildren<$t>> {
+            vec![$(&mut self.$child),*]
+        }
+    };
+}
+
+/// Layout trait for robust widget operations.
+pub trait Layout<T>: WidgetChildren<T> {
     /// Additional per-widget configuration required by the implementing layout type.
     type Config;
 
     /// Adds a widget to this layout.
     fn push(&mut self, child: CommonRef, config: Self::Config);
+    /// Inserts a widget at a specific index in this layout.
+    fn insert(&mut self, child: CommonRef, config: Self::Config, index: usize);
+    /// Moves a widget to another index.
+    fn reorder(&mut self, child: &CommonRef, new_index: usize);
     /// Removes a widget from this layout.
-    fn remove(&mut self, child: CommonRef, config: Self::Config);
-    /// Returns a boolean indicating the existence of a child within this layout (i.e. if it has been `pushed` and not `removed`).
+    fn remove(&mut self, child: &CommonRef);
+    /// Changes the layout configuration of a widget.
+    fn set(&mut self, child: &CommonRef, config: Self::Config);
+    /// Returns a boolean indicating the existence of a widget within this layout (i.e. if it has been `pushed` and not `removed`).
     fn has(&self, child: &CommonRef) -> bool;
+    /// Returns the index of a widget in the layout. If the widget is not present in the layout, `None` is returned instead.
+    fn position(&self, child: &CommonRef) -> Option<usize>;
+    /// Returns the number of widgets present in this layout.
+    fn len(&self) -> usize;
 }
 
 /// `CommandGroup` compatible with the `draw` function.
@@ -834,7 +835,7 @@ impl DerefMut for CommandGroup {
 }
 
 /// Widget drawing helper function which handles ownership.
-pub fn draw<T: 'static, W: WidgetChildren>(
+pub fn draw<T: 'static, W: WidgetChildren<T>>(
     obj: &mut W,
     draw_fn: impl FnOnce(&mut W, &mut Aux<T>) -> Vec<gfx::DisplayCommand>,
     display: &mut dyn gfx::GraphicsDisplay,

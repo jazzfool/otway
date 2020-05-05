@@ -1,4 +1,4 @@
-use {super::*, reclutch::display as gfx, std::collections::HashMap};
+use {super::*, std::collections::HashMap};
 
 /// Holds a strongly-typed ID of a child within a view.
 #[derive(Derivative)]
@@ -56,13 +56,7 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 
     /// Creates a child and returns a reference to it.
-    pub fn child<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-    >(
+    pub fn child<W: WidgetChildren<T> + 'static>(
         &mut self,
         new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
@@ -83,15 +77,7 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 
     /// Creates a child and makes it a layout child of another widget.
-    pub fn lay<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-        L: Layout<UpdateAux = Aux<T>, GraphicalAux = Aux<T>, DisplayObject = gfx::DisplayCommand>
-            + 'static,
-    >(
+    pub fn lay<W: WidgetChildren<T> + 'static, L: Layout<T> + 'static>(
         &mut self,
         new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
@@ -115,28 +101,13 @@ impl<T: 'static, S: 'static> View<T, S> {
 
     /// Returns a immutable reference to a child widget.
     #[inline]
-    pub fn get<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-    >(
-        &self,
-        child: ChildRef<W>,
-    ) -> Option<&W> {
+    pub fn get<W: WidgetChildren<T> + 'static>(&self, child: ChildRef<W>) -> Option<&W> {
         self.children.get(&child.0)?.as_any().downcast_ref::<W>()
     }
 
     /// Returns a mutable reference to a child widget.
     #[inline]
-    pub fn get_mut<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-    >(
+    pub fn get_mut<W: WidgetChildren<T> + 'static>(
         &mut self,
         child: ChildRef<W>,
     ) -> Option<&mut W> {
@@ -147,44 +118,19 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 
     /// Removes a child widget.
-    pub fn remove<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-    >(
-        &mut self,
-        child: ChildRef<W>,
-    ) -> Option<W> {
+    pub fn remove<W: WidgetChildren<T> + 'static>(&mut self, child: ChildRef<W>) -> Option<W> {
         self.children
             .remove(&child.0)
             .map(|x| *x.as_any_box().downcast::<W>().unwrap())
     }
 
     /// Returns `true` if this view has a given child widget, otherwise `false`.
-    pub fn has<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-    >(
-        &self,
-        child: ChildRef<W>,
-    ) -> bool {
+    pub fn has<W: WidgetChildren<T> + 'static>(&self, child: ChildRef<W>) -> bool {
         self.children.contains_key(&child.0)
     }
 
     /// Handles an event from a child node.
-    pub fn handle<
-        W: WidgetChildren<
-                UpdateAux = Aux<T>,
-                GraphicalAux = Aux<T>,
-                DisplayObject = gfx::DisplayCommand,
-            > + 'static,
-        Eo: 'static,
-    >(
+    pub fn handle<W: WidgetChildren<T> + 'static, Eo: 'static>(
         &mut self,
         child: ChildRef<W>,
         handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
@@ -237,46 +183,22 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 }
 
-impl<T: 'static, S: 'static> WidgetChildren for View<T, S> {
-    fn children(
-        &self,
-    ) -> Vec<
-        &dyn WidgetChildren<
-            UpdateAux = Self::UpdateAux,
-            GraphicalAux = Self::GraphicalAux,
-            DisplayObject = Self::DisplayObject,
-        >,
-    > {
+impl<T: 'static, S: 'static> WidgetChildren<T> for View<T, S> {
+    fn children(&self) -> Vec<&dyn WidgetChildren<T>> {
         self.children.values().map(|x| &**x).collect()
     }
 
-    fn children_mut(
-        &mut self,
-    ) -> Vec<
-        &mut dyn WidgetChildren<
-            UpdateAux = Self::UpdateAux,
-            GraphicalAux = Self::GraphicalAux,
-            DisplayObject = Self::DisplayObject,
-        >,
-    > {
+    fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>> {
         self.children.values_mut().map(|x| &mut **x).collect()
     }
 }
 
 impl<T: 'static, S: 'static> Element for View<T, S> {
-    fn common(&self) -> &CommonRef {
-        &self.common
-    }
-}
-
-impl<T: 'static, S: 'static> Widget for View<T, S> {
-    type UpdateAux = Aux<T>;
-    type GraphicalAux = Aux<T>;
-    type DisplayObject = gfx::DisplayCommand;
+    type Aux = T;
 
     #[inline]
-    fn bounds(&self) -> gfx::Rect {
-        self.common.with(|x| x.rect())
+    fn common(&self) -> &CommonRef {
+        &self.common
     }
 
     #[inline]

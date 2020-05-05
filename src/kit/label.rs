@@ -1,11 +1,9 @@
 use {
     crate::{theme, ui},
-    reclutch::{display as gfx, widget::Widget},
+    reclutch::display as gfx,
 };
 
 /// Displays text.
-#[derive(WidgetChildren)]
-#[widget_children_trait(ui::WidgetChildren)]
 pub struct Label<T: 'static> {
     text: gfx::DisplayText,
     size: f32,
@@ -51,20 +49,11 @@ impl<T: 'static> Label<T> {
 }
 
 impl<T: 'static> ui::Element for Label<T> {
+    type Aux = T;
+
     #[inline]
     fn common(&self) -> &ui::CommonRef {
         &self.common
-    }
-}
-
-impl<T: 'static> Widget for Label<T> {
-    type UpdateAux = ui::Aux<T>;
-    type GraphicalAux = ui::Aux<T>;
-    type DisplayObject = gfx::DisplayCommand;
-
-    #[inline]
-    fn bounds(&self) -> gfx::Rect {
-        self.common.with(|x| x.rect())
     }
 
     #[inline]
@@ -77,3 +66,5 @@ impl<T: 'static> Widget for Label<T> {
         );
     }
 }
+
+impl<T: 'static> ui::WidgetChildren<T> for Label<T> {}

@@ -2,8 +2,25 @@ use {crate::ui, reclutch::display as gfx};
 
 pub mod button;
 pub mod label;
+pub mod vstack;
 
-pub use {button::*, label::*};
+pub use {button::*, label::*, vstack::*};
+
+pub type SideMargins = reclutch::euclid::SideOffsets2D<f32, reclutch::euclid::UnknownUnit>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Alignment {
+    Begin,
+    Middle,
+    End,
+}
+
+impl Default for Alignment {
+    #[inline]
+    fn default() -> Self {
+        Alignment::Middle
+    }
+}
 
 /// The widget was pressed.
 pub struct PressEvent(pub gfx::Point);
@@ -21,23 +38,16 @@ pub enum InteractionEvent {
     EndHover(gfx::Point),
 }
 
-pub fn interaction_handler<
-    T: ui::WidgetChildren<
-        UpdateAux = ui::Aux<A>,
-        GraphicalAux = ui::Aux<A>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-    A,
->(
-    aux: &mut ui::Aux<A>,
-    callback: impl Fn(&mut T, &mut ui::Aux<A>, InteractionEvent) + Copy + 'static,
+pub fn interaction_handler<T, W: ui::WidgetChildren<T>>(
+    aux: &mut ui::Aux<T>,
+    callback: impl Fn(&mut W, &mut ui::Aux<T>, InteractionEvent) + Copy + 'static,
     mask: impl Into<Option<InteractionMask>>,
-) -> ui::Listener<T, ui::Aux<A>> {
+) -> ui::Listener<W, ui::Aux<T>> {
     let mask = mask.into().unwrap_or(Default::default());
     aux.listen()
         .and_on(
             aux.id,
-            move |obj: &mut T, aux, event: &ui::MousePressEvent| {
+            move |obj: &mut W, aux, event: &ui::MousePressEvent| {
                 if !mask.press {
                     return;
                 }
@@ -53,7 +63,7 @@ pub fn interaction_handler<
         )
         .and_on(
             aux.id,
-            move |obj: &mut T, aux, event: &ui::MouseReleaseEvent| {
+            move |obj: &mut W, aux, event: &ui::MouseReleaseEvent| {
                 if !mask.release {
                     return;
                 }
@@ -69,7 +79,7 @@ pub fn interaction_handler<
         )
         .and_on(
             aux.id,
-            move |obj: &mut T, aux, event: &ui::MouseMoveEvent| {
+            move |obj: &mut W, aux, event: &ui::MouseMoveEvent| {
                 if !mask.begin_hover && !mask.end_hover {
                     return;
                 }
@@ -113,9 +123,9 @@ impl Default for InteractionMask {
     }
 }
 
-pub fn interaction_forwarder<T: ui::Element, A: 'static>(
+pub fn interaction_forwarder<E: ui::Element<Aux = T>, T: 'static>(
     mask: impl Into<Option<InteractionMask>>,
-) -> impl Fn(&mut T, &mut ui::Aux<A>, InteractionEvent) + Copy {
+) -> impl Fn(&mut E, &mut ui::Aux<T>, InteractionEvent) + Copy {
     let mask = mask.into().unwrap_or(Default::default());
     move |obj, aux, event| match event {
         InteractionEvent::Press(pos) => {
@@ -210,13 +220,7 @@ pub trait ViewMixin<T: 'static, S: 'static> {
     ) -> ui::view::ChildRef<Button<T>>;
 
     /// Creates a button widget layed out with a specified label.
-    fn lay_button<
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_button<L: ui::Layout<T>>(
         &mut self,
         label: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -232,14 +236,7 @@ pub trait ViewMixin<T: 'static, S: 'static> {
     ) -> ButtonExtRef<'a, T, S>;
 
     /// Creates a button widget layed out with a specified label and returns a specialized reference.
-    fn lay_button_ext<
-        'a,
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_button_ext<'a, L: ui::Layout<T>>(
         &'a mut self,
         label: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -255,13 +252,7 @@ pub trait ViewMixin<T: 'static, S: 'static> {
     ) -> ui::view::ChildRef<Label<T>>;
 
     /// Creates a label widget layed out with specified text.
-    fn lay_label<
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_label<L: ui::Layout<T>>(
         &mut self,
         text: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -278,14 +269,7 @@ pub trait ViewMixin<T: 'static, S: 'static> {
     ) -> LabelExtRef<'a, T, S>;
 
     /// Creates a label widget layed out with specified text and returns a specialized reference.
-    fn lay_label_ext<
-        'a,
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_label_ext<'a, L: ui::Layout<T>>(
         &'a mut self,
         text: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -305,13 +289,7 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         r
     }
 
-    fn lay_button<
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_button<L: ui::Layout<T>>(
         &mut self,
         label: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -331,14 +309,7 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         ButtonExtRef(self.button(label, aux), self)
     }
 
-    fn lay_button_ext<
-        'a,
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_button_ext<'a, L: ui::Layout<T>>(
         &'a mut self,
         label: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -358,13 +329,7 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         r
     }
 
-    fn lay_label<
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_label<L: ui::Layout<T>>(
         &mut self,
         text: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,
@@ -384,14 +349,7 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         LabelExtRef(self.label(text, aux), self)
     }
 
-    fn lay_label_ext<
-        'a,
-        L: ui::Layout<
-            UpdateAux = ui::Aux<T>,
-            GraphicalAux = ui::Aux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    >(
+    fn lay_label_ext<'a, L: ui::Layout<T>>(
         &'a mut self,
         text: impl Into<gfx::DisplayText>,
         layout: ui::view::ChildRef<L>,

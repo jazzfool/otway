@@ -32,8 +32,7 @@ pub mod prelude {
     pub use crate::kit::ViewMixin;
 }
 
-#[macro_use]
-pub extern crate reclutch;
+pub use reclutch;
 
 #[macro_use]
 extern crate derivative;

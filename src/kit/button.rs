@@ -1,13 +1,10 @@
 use {
-    crate::{kit, theme, ui},
-    reclutch::{display as gfx, widget::Widget},
+    crate::{kit, prelude::*, theme, ui},
+    reclutch::display as gfx,
 };
 
 /// Simple labelled button control which emits interaction events.
-#[derive(WidgetChildren)]
-#[widget_children_trait(ui::WidgetChildren)]
 pub struct Button<T: 'static> {
-    #[widget_child]
     label: kit::Label<T>,
 
     painter: theme::Painter<Self, T>,
@@ -43,20 +40,11 @@ impl<T: 'static> Button<T> {
 }
 
 impl<T: 'static> ui::Element for Button<T> {
+    type Aux = T;
+
     #[inline]
     fn common(&self) -> &ui::CommonRef {
         &self.common
-    }
-}
-
-impl<T: 'static> Widget for Button<T> {
-    type UpdateAux = ui::Aux<T>;
-    type GraphicalAux = ui::Aux<T>;
-    type DisplayObject = gfx::DisplayCommand;
-
-    #[inline]
-    fn bounds(&self) -> gfx::Rect {
-        self.common.with(|x| x.rect())
     }
 
     #[inline]
@@ -73,4 +61,8 @@ impl<T: 'static> Widget for Button<T> {
             aux,
         );
     }
+}
+
+impl<T: 'static> ui::WidgetChildren<T> for Button<T> {
+    crate::children![for <T>; label];
 }

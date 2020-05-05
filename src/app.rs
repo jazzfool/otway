@@ -1,10 +1,7 @@
 use {
     crate::{theme, ui},
     glutin::event::{self as winit_event, Event, WindowEvent},
-    reclutch::{
-        display::{self as gfx, GraphicsDisplay},
-        widget::Widget,
-    },
+    reclutch::display::{self as gfx, GraphicsDisplay},
     thiserror::Error,
 };
 
@@ -18,33 +15,19 @@ pub enum AppError {
     SkiaError(#[from] reclutch::error::SkiaError),
 }
 
-#[derive(WidgetChildren)]
-#[widget_children_trait(ui::WidgetChildren)]
-pub struct Root<
-    T: 'static,
-    W: ui::WidgetChildren<
-        UpdateAux = AppAux<T>,
-        GraphicalAux = AppAux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
-> {
-    #[widget_child]
+pub struct Root<T: 'static, W: ui::WidgetChildren<AppData<T>>> {
     child: W,
     common: ui::CommonRef,
+    phantom: std::marker::PhantomData<T>,
 }
 
-impl<
-        T: 'static,
-        W: ui::WidgetChildren<
-            UpdateAux = AppAux<T>,
-            GraphicalAux = AppAux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    > Widget for Root<T, W>
-{
-    type UpdateAux = AppAux<T>;
-    type GraphicalAux = AppAux<T>;
-    type DisplayObject = gfx::DisplayCommand;
+impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
+    type Aux = AppData<T>;
+
+    #[inline]
+    fn common(&self) -> &ui::CommonRef {
+        &self.common
+    }
 
     #[inline]
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut AppAux<T>) {
@@ -61,37 +44,19 @@ impl<
     }
 }
 
-impl<
-        T: 'static,
-        W: ui::WidgetChildren<
-            UpdateAux = AppAux<T>,
-            GraphicalAux = AppAux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    > ui::Element for Root<T, W>
-{
-    #[inline]
-    fn common(&self) -> &ui::CommonRef {
-        &self.common
-    }
-}
-
-impl<
-        T: 'static,
-        W: ui::WidgetChildren<
-            UpdateAux = AppAux<T>,
-            GraphicalAux = AppAux<T>,
-            DisplayObject = gfx::DisplayCommand,
-        >,
-    > Root<T, W>
-{
+impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> Root<T, W> {
     pub fn new(new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W, aux: &mut AppAux<T>) -> Self {
         let common = ui::CommonRef::new(None);
         Root {
             child: new(common.clone(), aux),
             common,
+            phantom: Default::default(),
         }
     }
+}
+
+impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::WidgetChildren<AppData<T>> for Root<T, W> {
+    crate::children![for <AppData<T>>; child];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,14 +80,7 @@ impl Default for AppOptions {
     }
 }
 
-pub fn run<
-    T: 'static,
-    W: ui::WidgetChildren<
-        UpdateAux = AppAux<T>,
-        GraphicalAux = AppAux<T>,
-        DisplayObject = gfx::DisplayCommand,
-    >,
->(
+pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
     new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W,
     aux: T,
     theme: impl FnOnce(&mut dyn gfx::GraphicsDisplay) -> Box<dyn theme::Theme<AppData<T>>>,
@@ -225,6 +183,7 @@ pub fn run<
                 WindowEvent::CursorMoved { position, .. } => {
                     let position = position.to_logical::<f64>(scale_factor);
                     let point = gfx::Point::new(position.x as _, position.y as _);
+                    aux.data.cursor = point;
                     aux.queue
                         .emit(aux.id, ui::MouseMoveEvent(ui::ConsumableEvent::new(point)));
                 }

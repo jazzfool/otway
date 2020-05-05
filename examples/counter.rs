@@ -31,8 +31,10 @@ fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
         let count = *view.state();
         view.get_mut(label)
             .unwrap()
-            .set_text(format!("count = {}", count))
+            .set_text(format!("count = {}", count));
     });
+
+    view.set_state(|_| {});
 
     view
 }
