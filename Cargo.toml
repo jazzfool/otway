@@ -7,7 +7,7 @@ edition = "2018"
 [features]
 default = ["kit", "themes", "app"]
 kit = []
-themes = []
+themes = ["kit"]
 app = ["glutin", "reclutch/skia"]
 
 [dependencies]
@@ -16,3 +16,4 @@ uniq = { git = "https://github.com/reclutch-nursery/uniq", features = ["id"] }
 glutin = { version = "0.24", optional = true }
 thiserror = "1.0"
 derivative = "2.1"
+as-any = "0.2"

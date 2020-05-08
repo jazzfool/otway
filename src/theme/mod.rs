@@ -55,13 +55,17 @@ impl<T: 'static, P: TypedPainter<T>> AnyPainter<T> for P {
     }
 }
 
+#[cfg(feature = "kit")]
 pub struct Standards {
     pub label_size: f32,
+    pub button_text_alignment: ui::layout::Alignment,
 }
 
 pub trait Theme<T: 'static> {
     fn painter(&self, p: &'static str) -> Box<dyn AnyPainter<T>>;
     fn color(&self, c: &'static str) -> gfx::Color;
+
+    #[cfg(feature = "kit")]
     fn standards(&self) -> &Standards;
 }
 

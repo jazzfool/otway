@@ -1,4 +1,4 @@
-use {super::*, std::collections::HashMap};
+use {super::*, std::collections::BTreeMap};
 
 /// Holds a strongly-typed ID of a child within a view.
 #[derive(Derivative)]
@@ -36,7 +36,7 @@ type StateChangedCallback<T> = Box<dyn Fn(&mut T)>;
 pub struct View<T: 'static, S: 'static> {
     state: S,
     next_child: u64,
-    children: HashMap<u64, Box<AuxWidgetChildren<T>>>,
+    children: BTreeMap<u64, Box<AuxWidgetChildren<T>>>,
     state_changed: Option<Vec<StateChangedCallback<Self>>>,
     common: CommonRef,
     listener: Listener<Self, Aux<T>>,
@@ -48,7 +48,7 @@ impl<T: 'static, S: 'static> View<T, S> {
         View {
             state,
             next_child: 0,
-            children: HashMap::new(),
+            children: BTreeMap::new(),
             state_changed: Some(Vec::new()),
             common: CommonRef::new(parent),
             listener: aux.listen(),
@@ -77,7 +77,7 @@ impl<T: 'static, S: 'static> View<T, S> {
     }
 
     /// Creates a child and makes it a layout child of another widget.
-    pub fn lay<W: WidgetChildren<T> + 'static, L: Layout<T> + 'static>(
+    pub fn lay<W: WidgetChildren<T> + 'static, L: layout::Layout + 'static>(
         &mut self,
         new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
@@ -93,9 +93,7 @@ impl<T: 'static, S: 'static> View<T, S> {
         );
         self.next_child += 1;
         let common = self.get::<W>(child).unwrap().common().clone();
-        if let Some(layout) = self.get_mut(layout) {
-            layout.push(common, config);
-        }
+        // TODO: add child to layout
         child
     }
 

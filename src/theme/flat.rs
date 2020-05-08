@@ -94,7 +94,10 @@ impl<T: 'static> Theme<T> for FlatTheme {
     }
 
     fn standards(&self) -> &Standards {
-        &Standards { label_size: 16.0 }
+        &Standards {
+            label_size: 16.0,
+            button_text_alignment: ui::layout::Alignment::Middle,
+        }
     }
 }
 
@@ -113,7 +116,7 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
         let mut out = gfx::DisplayListBuilder::new();
 
         out.push_round_rectangle(
-            obj.common().with(|x| x.rect()),
+            obj.common().with(|x| x.absolute_rect()),
             CORNER_RADII,
             gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(
                 aux.theme.color(colors::STRONG_BACKGROUND),
@@ -126,7 +129,7 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
 
     #[inline]
     fn size_hint(&mut self, _obj: &mut kit::Button<T>) -> gfx::Size {
-        gfx::Size::new(50.0, 10.0)
+        gfx::Size::new(20.0, 10.0)
     }
 }
 
@@ -135,12 +138,12 @@ struct LabelPainter {
 }
 
 impl LabelPainter {
-    fn text_bounds(&self, text: gfx::DisplayText) -> gfx::Size {
+    fn text_bounds(&self, text: gfx::DisplayText, size: f32) -> gfx::Size {
         gfx::TextDisplayItem {
             text,
             font: self.theme.fonts.ui_regular.0,
             font_info: self.theme.fonts.ui_regular.1.clone(),
-            size: self.theme.font_sizes.ui,
+            size,
             bottom_left: Default::default(),
             color: gfx::StyleColor::Color(Default::default()),
         }
@@ -156,14 +159,16 @@ impl<T: 'static> TypedPainter<T> for LabelPainter {
     fn paint(&mut self, obj: &mut kit::Label<T>, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
         let mut out = gfx::DisplayListBuilder::new();
 
-        let text = gfx::TextDisplayItem {
+        let mut text = gfx::TextDisplayItem {
             text: obj.text().clone(),
             font: self.theme.fonts.ui_regular.0,
             font_info: self.theme.fonts.ui_regular.1.clone(),
-            size: self.theme.font_sizes.ui,
+            size: obj.size(),
             bottom_left: Default::default(),
             color: gfx::StyleColor::Color(aux.theme.color(colors::FOREGROUND)),
         };
+
+        text.set_top_left(obj.bounds().origin);
 
         out.push_text(text, None);
 
@@ -172,6 +177,6 @@ impl<T: 'static> TypedPainter<T> for LabelPainter {
 
     #[inline]
     fn size_hint(&mut self, obj: &mut kit::Label<T>) -> gfx::Size {
-        self.text_bounds(obj.text().clone())
+        self.text_bounds(obj.text().clone(), obj.size())
     }
 }

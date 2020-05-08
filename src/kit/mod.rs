@@ -2,25 +2,8 @@ use {crate::ui, reclutch::display as gfx};
 
 pub mod button;
 pub mod label;
-pub mod vstack;
 
-pub use {button::*, label::*, vstack::*};
-
-pub type SideMargins = reclutch::euclid::SideOffsets2D<f32, reclutch::euclid::UnknownUnit>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Alignment {
-    Begin,
-    Middle,
-    End,
-}
-
-impl Default for Alignment {
-    #[inline]
-    fn default() -> Self {
-        Alignment::Middle
-    }
-}
+pub use {button::*, label::*};
 
 /// The widget was pressed.
 pub struct PressEvent(pub gfx::Point);
@@ -30,6 +13,88 @@ pub struct ReleaseEvent(pub gfx::Point);
 pub struct BeginHoverEvent(pub gfx::Point);
 /// The cursor left the widget boundaries.
 pub struct EndHoverEvent(pub gfx::Point);
+
+pub trait ComparableCommon {
+    fn compare(&self, common: &ui::CommonRef) -> bool;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StoredLayout<C: ComparableCommon> {
+    pub children: Vec<C>,
+}
+
+impl<C: ComparableCommon> Default for StoredLayout<C> {
+    fn default() -> Self {
+        StoredLayout {
+            children: Default::default(),
+        }
+    }
+}
+
+impl<C: ComparableCommon> StoredLayout<C> {
+    #[inline]
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    #[inline]
+    pub fn push(&mut self, child: &ui::CommonRef, data: C) -> bool {
+        if !self.has(child) {
+            self.children.push(data);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, child: &ui::CommonRef, data: C, index: usize) -> bool {
+        if !self.has(&child) {
+            self.children.insert(index, data);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn reorder(&mut self, child: &ui::CommonRef, new_index: usize) -> bool {
+        if let Some(idx) = self.position(child) {
+            let x = self.children.remove(idx);
+            self.insert(child, x, new_index);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove(&mut self, child: &ui::CommonRef) -> bool {
+        if let Some(idx) = self.position(child) {
+            self.children.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set<D>(&mut self, child: &ui::CommonRef, data: D, set: impl FnOnce(&mut C, D)) -> bool {
+        if let Some(idx) = self.position(child) {
+            set(&mut self.children[idx], data);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    pub fn has(&self, child: &ui::CommonRef) -> bool {
+        self.position(child).is_some()
+    }
+
+    #[inline]
+    pub fn position(&self, child: &ui::CommonRef) -> Option<usize> {
+        self.children.iter().position(|c| c.compare(child))
+    }
+}
 
 pub enum InteractionEvent {
     Press(gfx::Point),
@@ -219,28 +284,10 @@ pub trait ViewMixin<T: 'static, S: 'static> {
         aux: &mut ui::Aux<T>,
     ) -> ui::view::ChildRef<Button<T>>;
 
-    /// Creates a button widget layed out with a specified label.
-    fn lay_button<L: ui::Layout<T>>(
-        &mut self,
-        label: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Button<T>>;
-
     /// Creates a button widget with a specified label and returns a specialized reference.
     fn button_ext<'a>(
         &'a mut self,
         label: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ButtonExtRef<'a, T, S>;
-
-    /// Creates a button widget layed out with a specified label and returns a specialized reference.
-    fn lay_button_ext<'a, L: ui::Layout<T>>(
-        &'a mut self,
-        label: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
         aux: &mut ui::Aux<T>,
     ) -> ButtonExtRef<'a, T, S>;
 
@@ -251,29 +298,11 @@ pub trait ViewMixin<T: 'static, S: 'static> {
         aux: &mut ui::Aux<T>,
     ) -> ui::view::ChildRef<Label<T>>;
 
-    /// Creates a label widget layed out with specified text.
-    fn lay_label<L: ui::Layout<T>>(
-        &mut self,
-        text: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Label<T>>;
-
     /// Creates a label widget with specified text and returns a specialized reference with
     /// builder-like conveniences.
     fn label_ext<'a>(
         &'a mut self,
         text: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> LabelExtRef<'a, T, S>;
-
-    /// Creates a label widget layed out with specified text and returns a specialized reference.
-    fn lay_label_ext<'a, L: ui::Layout<T>>(
-        &'a mut self,
-        text: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
         aux: &mut ui::Aux<T>,
     ) -> LabelExtRef<'a, T, S>;
 }
@@ -289,34 +318,12 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         r
     }
 
-    fn lay_button<L: ui::Layout<T>>(
-        &mut self,
-        label: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Button<T>> {
-        let r = self.lay(Button::new, aux, layout, config);
-        self.get_mut(r).unwrap().set_text(label);
-        r
-    }
-
     fn button_ext<'a>(
         &'a mut self,
         label: impl Into<gfx::DisplayText>,
         aux: &mut ui::Aux<T>,
     ) -> ButtonExtRef<'a, T, S> {
         ButtonExtRef(self.button(label, aux), self)
-    }
-
-    fn lay_button_ext<'a, L: ui::Layout<T>>(
-        &'a mut self,
-        label: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> ButtonExtRef<'a, T, S> {
-        ButtonExtRef(self.lay_button(label, layout, config, aux), self)
     }
 
     fn label(
@@ -329,33 +336,11 @@ impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
         r
     }
 
-    fn lay_label<L: ui::Layout<T>>(
-        &mut self,
-        text: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Label<T>> {
-        let r = self.lay(Label::new, aux, layout, config);
-        self.get_mut(r).unwrap().set_text(text);
-        r
-    }
-
     fn label_ext<'a>(
         &'a mut self,
         text: impl Into<gfx::DisplayText>,
         aux: &mut ui::Aux<T>,
     ) -> LabelExtRef<'a, T, S> {
         LabelExtRef(self.label(text, aux), self)
-    }
-
-    fn lay_label_ext<'a, L: ui::Layout<T>>(
-        &'a mut self,
-        text: impl Into<gfx::DisplayText>,
-        layout: ui::view::ChildRef<L>,
-        config: L::Config,
-        aux: &mut ui::Aux<T>,
-    ) -> LabelExtRef<'a, T, S> {
-        LabelExtRef(self.lay_label(text, layout, config, aux), self)
     }
 }

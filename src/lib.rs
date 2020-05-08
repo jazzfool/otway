@@ -25,7 +25,7 @@ pub mod ui;
 pub mod prelude {
     pub use crate::{
         theme::{Theme, TypedPainter},
-        ui::{AnyElement, Element, Id, Layout, WidgetChildren},
+        ui::{layout::Layout, AnyElement, Element, Id, WidgetChildren},
     };
 
     #[cfg(feature = "kit")]

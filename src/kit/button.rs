@@ -7,6 +7,7 @@ use {
 pub struct Button<T: 'static> {
     label: kit::Label<T>,
 
+    alignment: ui::layout::Alignment,
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
     listener: ui::Listener<Self, ui::Aux<T>>,
@@ -20,6 +21,7 @@ impl<T: 'static> Button<T> {
 
         Button {
             label: kit::Label::new(common.clone(), aux),
+            alignment: aux.theme.standards().button_text_alignment,
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
             common,
             listener,
@@ -28,14 +30,36 @@ impl<T: 'static> Button<T> {
 
     pub fn set_text(&mut self, text: impl Into<gfx::DisplayText>) {
         self.label.set_text(text);
-        let padding = theme::size_hint(self, |x| &mut x.painter);
-        self.common
-            .with(|x| x.set_size(self.label.bounds().size + padding));
+        self.update_label();
     }
 
     #[inline]
     pub fn text(&self) -> &gfx::DisplayText {
         self.label.text()
+    }
+
+    pub fn set_alignment(&mut self, alignment: ui::layout::Alignment) {
+        self.alignment = alignment;
+        self.update_label();
+    }
+
+    #[inline]
+    pub fn alignment(&self) -> ui::layout::Alignment {
+        self.alignment
+    }
+
+    fn update_label(&mut self) {
+        let label_bounds = self.label.bounds();
+        let padding = theme::size_hint(self, |x| &mut x.painter);
+        self.common
+            .with(|x| x.set_size(label_bounds.size + padding));
+        let bounds = self.bounds();
+        let y = gfx::center_vertically(label_bounds, bounds).y;
+        let x = ui::layout::align_x(label_bounds, bounds, self.alignment, padding.width / 2.0);
+
+        self.label
+            .common()
+            .with(|c| c.set_position(gfx::Point::new(x, y)));
     }
 }
 

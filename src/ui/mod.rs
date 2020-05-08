@@ -1,3 +1,4 @@
+pub mod layout;
 pub mod view;
 
 use {
@@ -413,13 +414,11 @@ pub struct CommonRef(Rc<Cell<Option<Common>>>);
 
 impl CommonRef {
     /// Creates a new `CommonRef` as an implied child of a `parent`.
-    #[inline]
     pub fn new(parent: impl Into<Option<CommonRef>>) -> Self {
         CommonRef(Rc::new(Cell::new(Some(Common::new(parent)))))
     }
 
     // Creates a new `CommonRef` as an implied child of a `parent` with some additional `info`.
-    #[inline]
     pub fn with_info(
         parent: impl Into<Option<CommonRef>>,
         info: impl Into<Option<Box<dyn std::any::Any>>>,
@@ -448,6 +447,12 @@ impl CommonRef {
     #[inline]
     pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
         self.with(|x| x.emit(aux, event));
+    }
+
+    /// Schedules repaint with the inner command group.
+    #[inline]
+    pub fn repaint(&self) {
+        self.with(|x| x.command_group_mut().repaint());
     }
 }
 
@@ -481,6 +486,8 @@ impl Interaction {
     }
 }
 
+pub struct TransformEvent;
+
 /// The core, widget-agnostic object.
 /// This should be stored within widgets via `Element`.
 /// It handles the widget rectangle, parent, and other fundamental things.
@@ -491,6 +498,7 @@ impl Interaction {
 /// This information can be initialized (only once) by constructing `with_info`.
 pub struct Common {
     pub(crate) interaction: Interaction,
+    pub(crate) layout: Option<layout::DynamicNode>,
     visible: bool,
     updates: bool,
     rect: gfx::Rect,
@@ -517,6 +525,7 @@ impl Common {
     ) -> Self {
         Common {
             interaction: Interaction::default(),
+            layout: None,
             visible: true,
             updates: true,
             rect: Default::default(),
@@ -549,6 +558,42 @@ impl Common {
     #[inline]
     pub fn size(&self) -> gfx::Size {
         self.rect.size
+    }
+
+    /// Changes the widget rectangle position.
+    #[inline]
+    pub fn set_position(&mut self, position: gfx::Point) {
+        self.rect.origin = position;
+    }
+
+    /// Returns the widget rectangle position.
+    #[inline]
+    pub fn position(&self) -> gfx::Point {
+        self.rect.origin
+    }
+
+    /// Sets the widget rectangle position from an absolute point.
+    pub fn set_absolute_position(&mut self, position: gfx::Point) {
+        if let Some(parent) = self.parent.clone() {
+            self.set_position(position - parent.with(|x| x.absolute_position()).to_vector());
+        } else {
+            self.set_position(position);
+        }
+    }
+
+    /// Returns the widget rectangle position relative to the window.
+    pub fn absolute_position(&self) -> gfx::Point {
+        if let Some(parent) = &self.parent {
+            parent.with(|x| x.absolute_position()) + self.position().to_vector()
+        } else {
+            self.position()
+        }
+    }
+
+    /// Returns the widget rectangle, positioned relative to the window.
+    pub fn absolute_rect(&self) -> gfx::Rect {
+        let pos = self.absolute_position();
+        gfx::Rect::new(pos, self.size())
     }
 
     /// Sets the visibility for this widget.
@@ -654,6 +699,11 @@ impl Common {
             })
         }
     }
+
+    #[inline]
+    pub fn set_layout<L: layout::Layout>(&mut self, layout: layout::Node<L>) {
+        self.layout = Some(layout::DynamicNode(Box::new(layout)));
+    }
 }
 
 impl Id for Common {
@@ -708,7 +758,7 @@ pub trait Element: AnyElement {
 
     #[inline]
     fn bounds(&self) -> gfx::Rect {
-        self.common().with(|x| x.rect())
+        self.common().with(|x| x.absolute_rect())
     }
 
     #[inline]
@@ -716,6 +766,9 @@ pub trait Element: AnyElement {
 
     #[inline]
     fn draw(&mut self, _display: &mut dyn gfx::GraphicsDisplay, _aux: &mut Aux<Self::Aux>) {}
+
+    #[inline]
+    fn on_layout(&mut self, _aux: &mut Aux<Self::Aux>) {}
 }
 
 impl<E: Element + ?Sized> Id for E {
@@ -785,29 +838,6 @@ macro_rules! children {
             vec![$(&mut self.$child),*]
         }
     };
-}
-
-/// Layout trait for robust widget operations.
-pub trait Layout<T>: WidgetChildren<T> {
-    /// Additional per-widget configuration required by the implementing layout type.
-    type Config;
-
-    /// Adds a widget to this layout.
-    fn push(&mut self, child: CommonRef, config: Self::Config);
-    /// Inserts a widget at a specific index in this layout.
-    fn insert(&mut self, child: CommonRef, config: Self::Config, index: usize);
-    /// Moves a widget to another index.
-    fn reorder(&mut self, child: &CommonRef, new_index: usize);
-    /// Removes a widget from this layout.
-    fn remove(&mut self, child: &CommonRef);
-    /// Changes the layout configuration of a widget.
-    fn set(&mut self, child: &CommonRef, config: Self::Config);
-    /// Returns a boolean indicating the existence of a widget within this layout (i.e. if it has been `pushed` and not `removed`).
-    fn has(&self, child: &CommonRef) -> bool;
-    /// Returns the index of a widget in the layout. If the widget is not present in the layout, `None` is returned instead.
-    fn position(&self, child: &CommonRef) -> Option<usize>;
-    /// Returns the number of widgets present in this layout.
-    fn len(&self) -> usize;
 }
 
 /// `CommandGroup` compatible with the `draw` function.
