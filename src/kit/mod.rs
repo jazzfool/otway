@@ -1,4 +1,7 @@
-use {crate::ui, reclutch::display as gfx};
+use {
+    crate::ui::{self, layout, ElementMixin},
+    reclutch::display as gfx,
+};
 
 pub mod button;
 pub mod label;
@@ -195,22 +198,22 @@ pub fn interaction_forwarder<E: ui::Element<Aux = T>, T: 'static>(
     move |obj, aux, event| match event {
         InteractionEvent::Press(pos) => {
             if mask.press {
-                obj.common().emit(aux, PressEvent(pos));
+                obj.emit(aux, PressEvent(pos));
             }
         }
         InteractionEvent::Release(pos) => {
             if mask.release {
-                obj.common().emit(aux, ReleaseEvent(pos));
+                obj.emit(aux, ReleaseEvent(pos));
             }
         }
         InteractionEvent::BeginHover(pos) => {
             if mask.begin_hover {
-                obj.common().emit(aux, BeginHoverEvent(pos));
+                obj.emit(aux, BeginHoverEvent(pos));
             }
         }
         InteractionEvent::EndHover(pos) => {
             if mask.end_hover {
-                obj.common().emit(aux, EndHoverEvent(pos));
+                obj.emit(aux, EndHoverEvent(pos));
             }
         }
     }
@@ -220,16 +223,24 @@ pub fn interaction_forwarder<E: ui::Element<Aux = T>, T: 'static>(
 ///
 /// Ensure that `inner()` is invoked once customization is finished so
 /// that the unique borrow of the view is dropped.
-pub struct LabelExtRef<'a, T: 'static, S: 'static>(
+pub struct LabelRef<'a, T: 'static, S: 'static>(
     ui::view::ChildRef<Label<T>>,
     &'a mut ui::view::View<T, S>,
 );
 
-impl<'a, T: 'static, S: 'static> LabelExtRef<'a, T, S> {
+impl<'a, T: 'static, S: 'static> LabelRef<'a, T, S> {
     /// Consumes `self` and returns the inner [`ChildRef`](ui::view::ChildRef).
     #[inline]
-    pub fn into_ref(self) -> ui::view::ChildRef<Label<T>> {
+    pub fn into_inner(self) -> ui::view::ChildRef<Label<T>> {
         self.0
+    }
+
+    pub fn layout<L: layout::Layout>(self, layout: &mut layout::Node<L>, config: L::Config) -> Self
+    where
+        L::Id: Clone,
+    {
+        layout.push(self.1.get(self.0).unwrap(), config);
+        self
     }
 
     /// Sets the label text.
@@ -251,16 +262,29 @@ impl<'a, T: 'static, S: 'static> LabelExtRef<'a, T, S> {
 ///
 /// Ensure that `inner()` is invoked once customization is finished so
 /// that the unique borrow of the view is dropped.
-pub struct ButtonExtRef<'a, T: 'static, S: 'static>(
+pub struct ButtonRef<'a, T: 'static, S: 'static>(
     ui::view::ChildRef<Button<T>>,
     &'a mut ui::view::View<T, S>,
 );
 
-impl<'a, T: 'static, S: 'static> ButtonExtRef<'a, T, S> {
+impl<'a, T: 'static, S: 'static> ButtonRef<'a, T, S> {
     // Consumes `self` and returns the inner [`ChildRef`](ui::view::ChildRef).
     #[inline]
-    pub fn inner(self) -> ui::view::ChildRef<Button<T>> {
+    pub fn into_inner(self) -> ui::view::ChildRef<Button<T>> {
         self.0
+    }
+
+    pub fn layout<L: layout::Layout>(self, layout: &mut layout::Node<L>, config: L::Config) -> Self
+    where
+        L::Id: Clone,
+    {
+        layout.push(self.1.get(self.0).unwrap(), config);
+        self
+    }
+
+    pub fn text(self, text: impl Into<gfx::DisplayText>) -> Self {
+        self.1.get_mut(self.0).unwrap().set_text(text);
+        self
     }
 
     /// Handles the button press event.
@@ -277,70 +301,21 @@ impl<'a, T: 'static, S: 'static> ButtonExtRef<'a, T, S> {
 
 /// Convenience mix-in trait which simplifies the creation of common widgets.
 pub trait ViewMixin<T: 'static, S: 'static> {
-    /// Creates a button widget with a specified label.
-    fn button(
-        &mut self,
-        label: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Button<T>>;
+    /// Creates a button widget and returns a builder-like object.
+    fn button<'a>(&'a mut self, aux: &mut ui::Aux<T>) -> ButtonRef<'a, T, S>;
 
-    /// Creates a button widget with a specified label and returns a specialized reference.
-    fn button_ext<'a>(
-        &'a mut self,
-        label: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ButtonExtRef<'a, T, S>;
-
-    /// Creates a label widget with specified text.
-    fn label(
-        &mut self,
-        text: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Label<T>>;
-
-    /// Creates a label widget with specified text and returns a specialized reference with
-    /// builder-like conveniences.
-    fn label_ext<'a>(
-        &'a mut self,
-        text: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> LabelExtRef<'a, T, S>;
+    /// Creates a label widget and returns a builder-like object.
+    fn label<'a>(&'a mut self, aux: &mut ui::Aux<T>) -> LabelRef<'a, T, S>;
 }
 
 impl<T: 'static, S: 'static> ViewMixin<T, S> for ui::view::View<T, S> {
-    fn button(
-        &mut self,
-        label: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Button<T>> {
-        let r = self.child(Button::new, aux);
-        self.get_mut(r).unwrap().set_text(label);
-        r
+    fn button<'a>(&'a mut self, aux: &mut ui::Aux<T>) -> ButtonRef<'a, T, S> {
+        let child = self.child(Button::new, aux);
+        ButtonRef(child, self)
     }
 
-    fn button_ext<'a>(
-        &'a mut self,
-        label: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ButtonExtRef<'a, T, S> {
-        ButtonExtRef(self.button(label, aux), self)
-    }
-
-    fn label(
-        &mut self,
-        text: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> ui::view::ChildRef<Label<T>> {
-        let r = self.child(Label::new, aux);
-        self.get_mut(r).unwrap().set_text(text);
-        r
-    }
-
-    fn label_ext<'a>(
-        &'a mut self,
-        text: impl Into<gfx::DisplayText>,
-        aux: &mut ui::Aux<T>,
-    ) -> LabelExtRef<'a, T, S> {
-        LabelExtRef(self.label(text, aux), self)
+    fn label<'a>(&'a mut self, aux: &mut ui::Aux<T>) -> LabelRef<'a, T, S> {
+        let child = self.child(Label::new, aux);
+        LabelRef(child, self)
     }
 }

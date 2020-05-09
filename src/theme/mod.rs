@@ -66,7 +66,7 @@ pub trait Theme<T: 'static> {
     fn color(&self, c: &'static str) -> gfx::Color;
 
     #[cfg(feature = "kit")]
-    fn standards(&self) -> &Standards;
+    fn standards(&self) -> Standards;
 }
 
 pub fn get_painter<O: 'static, T: 'static>(theme: &dyn Theme<T>, p: &'static str) -> Painter<O, T> {

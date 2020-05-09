@@ -1,10 +1,20 @@
 use {crate::ui::layout, reclutch::display as gfx, std::collections::BTreeMap};
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct HStackConfig {
-    left_margin: f32,
-    right_margin: f32,
-    alignment: layout::Alignment,
+    pub left_margin: f32,
+    pub right_margin: f32,
+    pub alignment: layout::Alignment,
+}
+
+impl From<(f32, f32)> for HStackConfig {
+    fn from(margins: (f32, f32)) -> Self {
+        HStackConfig {
+            left_margin: margins.0,
+            right_margin: margins.1,
+            ..Default::default()
+        }
+    }
 }
 
 struct Item {
@@ -71,7 +81,7 @@ impl layout::Layout for HStack {
             if rect.size.height > height {
                 height = rect.size.height;
             }
-            width += rect.size.width;
+            width += rect.size.width + entry.config.left_margin + entry.config.left_margin;
         }
         gfx::Size::new(width, height)
     }
@@ -79,12 +89,16 @@ impl layout::Layout for HStack {
     fn update(&mut self, bounds: gfx::Rect) {
         let mut x = bounds.origin.x;
         for entry in self.entries.values_mut() {
+            x += entry.config.left_margin;
             let rect = entry.item.rect();
             entry.item.set_rect(gfx::Rect::new(
-                gfx::Point::new(x, bounds.origin.y),
+                gfx::Point::new(
+                    x,
+                    layout::align_y(rect, bounds, entry.config.alignment, 0.0),
+                ),
                 rect.size,
             ));
-            x += rect.size.width;
+            x += rect.size.width + entry.config.right_margin;
         }
     }
 }

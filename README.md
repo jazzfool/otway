@@ -4,41 +4,52 @@
 
 ## Counter Example
 
-```rust
-struct IncrementEvent;
-struct DecrementEvent;
+![Counter UI Screenshot](.media/counter.png)
 
+```rust
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
     let mut view = View::new(parent, aux, 0);
 
-    let vstack = view.vstack();
+    let mut vstack = layout::VStack::new().into_node(None);
+    let mut hstack = layout::HStack::new().into_node(None);
 
-    view.lay_button_ext("Increment", vstack, None, aux).press(|view, aux, _| {
-        view.set_state(|x| *x += 1);
-        aux.emit(view, IncrementEvent);
-    });
+    let label = view
+        .label(aux)
+        .layout(&mut vstack, None)
+        .size(42.0)
+        .into_inner();
 
-    view.lay_button_ext("Decrement", vstack, None, aux).press(|view, aux, _| {
-        view.set_state(|x| *x -= 1);
-        aux.emit(view, DecrementEvent);
-    });
+    view.button(aux)
+        .text("Increment")
+        .layout(&mut hstack, None)
+        .press(|view, aux, _| {
+            view.set_state(|x| *x += 1);
+        });
 
-    let label = view.lay_label_ext("", vstack, None, aux).size(42.0).into_ref();
+    view.button(aux)
+        .text("Decrement")
+        .layout(&mut hstack, None)
+        .press(|view, aux, _| {
+            view.set_state(|x| *x -= 1);
+        });
+
+    vstack.push(hstack, None);
+    view.set_layout(vstack);
 
     view.state_changed(move |view| {
         let count = *view.state();
         view.get_mut(label)
             .unwrap()
-            .set_text(format!("count = {}", count))
+            .set_text(format!("Count is up to {}", count));
+        layout::update_layout(view);
     });
 
     view.set_state(|_| {});
-
     view
 }
 ```
 
-Alternative syntax also exists; `lay_/widget/_ext` are optional convenience functions. For example;
+The `.button`/`.label` syntax are simply convenience extensions (which can be written for any custom widget). The general, widget-agnostic syntax is like so;
 
 ```rust
 // A button that is deleted when clicked.
@@ -50,22 +61,7 @@ view.on(btn, move |view, aux, event: &PressEvent| {
 
 The important detail here is that this syntax works with custom widgets too - and you can still write a mix-in trait to add the conveniences seen in the first example for custom widgets.
 
-There exists an underlying widget tree in the form of `CommonRef/Common`. Each widget has its own `Common`. The advantage of this secondary reference-based tree hosted/owned by the corresponding widgets of the primary tree is that traversals are much more flexible.
-
-`Common` can also store some arbitrary information.
-
-```rust
-// If this button is a (grand)child of a `VStack`, then self-destruct.
-let btn = view.button("my button", aux);
-let in_vstack = btn
-    .common()
-    .with(|c| c.find_parent(|p| p.info_is_type::<VStackCommonInfo>(), None))
-    .is_some();
-
-if in_vstack {
-    view.remove(btn);
-}
-```
+There exists an underlying widget tree in the form of `CommonRef/Common`. Each widget has its own `Common`. The advantage of this secondary reference-based tree hosted/owned by the corresponding widgets of the primary tree is that traversals can go upwards.
 
 ### Event Queue Synchronization
 
@@ -94,6 +90,18 @@ If you want to compose widgets to make a larger UI, use `View`. `View` by itself
 `View`s, by their very nature, simplify creating a UI by acting as a proxy interface, and thus require handles to reference children.
 
 `Widget`s, on the other hand, handle everything themselves. They can access their children directly.
+
+### Layouts
+
+The layout semantics are almost identical to that of Qt's;
+
+```rust
+let mut vstack = VStack::new().into_node(None);
+
+vstack.push(&someWidget, None);
+
+parentWidget.set_layout(vstack);
+```
 
 ### Full and Extensible Theming
 

@@ -442,18 +442,6 @@ impl CommonRef {
     pub fn get_rc(&self) -> &Rc<Cell<Option<Common>>> {
         &self.0
     }
-
-    /// Emits an event to the global queue on the behalf of `common.id()`.
-    #[inline]
-    pub fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
-        self.with(|x| x.emit(aux, event));
-    }
-
-    /// Schedules repaint with the inner command group.
-    #[inline]
-    pub fn repaint(&self) {
-        self.with(|x| x.command_group_mut().repaint());
-    }
 }
 
 impl PartialEq for CommonRef {
@@ -540,6 +528,7 @@ impl Common {
     #[inline(always)]
     pub fn set_rect(&mut self, rect: gfx::Rect) {
         self.rect = rect;
+        self.repaint();
     }
 
     /// Returns the widget rectangle.
@@ -552,6 +541,7 @@ impl Common {
     #[inline]
     pub fn set_size(&mut self, size: gfx::Size) {
         self.rect.size = size;
+        self.repaint();
     }
 
     /// Returns the widget rectangle size.
@@ -561,9 +551,15 @@ impl Common {
     }
 
     /// Changes the widget rectangle position.
+    ///
+    /// If the widget is in a layout, nothing will happen.
     #[inline]
     pub fn set_position(&mut self, position: gfx::Point) {
+        if self.layout.is_some() {
+            return;
+        }
         self.rect.origin = position;
+        self.repaint();
     }
 
     /// Returns the widget rectangle position.
@@ -632,16 +628,16 @@ impl Common {
         self.parent.clone()
     }
 
-    /// Returns the display command group immutably.
+    /// Returns the display command group.
     #[inline]
-    pub fn command_group(&self) -> &CommandGroup {
-        &self.cmds
+    pub fn command_group(&mut self) -> &mut CommandGroup {
+        &mut self.cmds
     }
 
-    /// Returns the display command group mutably.
+    /// Convenience function which will flag the repaint for the command group.
     #[inline]
-    pub fn command_group_mut(&mut self) -> &mut CommandGroup {
-        &mut self.cmds
+    pub fn repaint(&mut self) {
+        self.command_group().repaint();
     }
 
     /// Emits an event to the global queue on the behalf of [`id`](Common::id).
@@ -650,19 +646,11 @@ impl Common {
         aux.queue.emit(self.id, event);
     }
 
-    /// Returns the possible stored information immutably.
+    /// Returns the possible stored information.
     ///
     /// If the information has not been provided, or the downcast type mismatches, `None` is returned.
     #[inline]
-    pub fn info<T: 'static>(&self) -> Option<&T> {
-        self.info.as_ref()?.as_ref().downcast_ref::<T>()
-    }
-
-    /// Returns the possible stored information mutably.
-    ///
-    /// If the information has not been provided, or the downcast type mismatches, `None` is returned.
-    #[inline]
-    pub fn info_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    pub fn info<T: 'static>(&mut self) -> Option<&mut T> {
         self.info.as_mut()?.as_mut().downcast_mut::<T>()
     }
 
@@ -700,9 +688,12 @@ impl Common {
         }
     }
 
+    /// Changes the widget's layout.
+    ///
+    /// Pass `None` to remove the existing layout.
     #[inline]
-    pub fn set_layout<L: layout::Layout>(&mut self, layout: layout::Node<L>) {
-        self.layout = Some(layout::DynamicNode(Box::new(layout)));
+    pub fn set_layout<L: layout::Layout>(&mut self, layout: impl Into<Option<layout::Node<L>>>) {
+        self.layout = layout.into().map(|x| layout::DynamicNode(Box::new(x)));
     }
 }
 
@@ -871,9 +862,7 @@ pub fn draw<T: 'static, W: WidgetChildren<T>>(
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
 ) {
-    let mut cmds = obj
-        .common()
-        .with(|x| x.command_group_mut().0.take().unwrap());
+    let mut cmds = obj.common().with(|x| x.command_group().0.take().unwrap());
     cmds.push_with(
         display,
         || draw_fn(obj, aux),
@@ -881,7 +870,16 @@ pub fn draw<T: 'static, W: WidgetChildren<T>>(
         None,
         None,
     );
-    obj.common().with(|x| x.command_group_mut().0 = Some(cmds));
+    obj.common().with(|x| x.command_group().0 = Some(cmds));
+}
+
+/// Propagates the repaint flag to children of a widget if it is set.
+pub fn propagate_repaint<T: 'static>(widget: &impl WidgetChildren<T>) {
+    if widget.common().with(|x| x.command_group().will_repaint()) {
+        for child in widget.children() {
+            child.repaint();
+        }
+    }
 }
 
 /// Keyboard modifier keys state.
@@ -892,3 +890,102 @@ pub struct KeyModifiers {
     pub alt: bool,
     pub logo: bool,
 }
+
+/// Element convenience mixin with methods parallel to `Common`.
+///
+/// Simply forwards methods via `self.common().with(...)`.
+pub trait ElementMixin: Element {
+    #[inline]
+    fn set_rect(&self, rect: gfx::Rect) {
+        self.common().with(|x| x.set_rect(rect));
+    }
+
+    #[inline]
+    fn rect(&self) -> gfx::Rect {
+        self.common().with(|x| x.rect())
+    }
+
+    #[inline]
+    fn set_size(&self, size: gfx::Size) {
+        self.common().with(|x| x.set_size(size));
+    }
+
+    #[inline]
+    fn size(&self) -> gfx::Size {
+        self.common().with(|x| x.size())
+    }
+
+    #[inline]
+    fn set_position(&self, position: gfx::Point) {
+        self.common().with(|x| x.set_position(position));
+    }
+
+    #[inline]
+    fn position(&self) -> gfx::Point {
+        self.common().with(|x| x.position())
+    }
+
+    #[inline]
+    fn set_absolute_position(&self, position: gfx::Point) {
+        self.common().with(|x| x.set_absolute_position(position));
+    }
+
+    #[inline]
+    fn absolute_position(&self) -> gfx::Point {
+        self.common().with(|x| x.absolute_position())
+    }
+
+    #[inline]
+    fn absolute_rect(&self) -> gfx::Rect {
+        self.common().with(|x| x.absolute_rect())
+    }
+
+    #[inline]
+    fn set_visible(&self, visible: bool) {
+        self.common().with(|x| x.set_visible(visible))
+    }
+
+    #[inline]
+    fn visible(&self) -> bool {
+        self.common().with(|x| x.visible())
+    }
+
+    #[inline]
+    fn set_updates(&self, updates: bool) {
+        self.common().with(|x| x.set_updates(updates));
+    }
+
+    #[inline]
+    fn updates(&self) -> bool {
+        self.common().with(|x| x.updates())
+    }
+
+    #[inline]
+    fn parent(&self) -> Option<CommonRef> {
+        self.common().with(|x| x.parent())
+    }
+
+    #[inline]
+    fn repaint(&self) {
+        self.common().with(|x| x.repaint());
+    }
+
+    fn emit<T: 'static, E: 'static>(&self, aux: &mut Aux<T>, event: E) {
+        self.common().with(|x| x.emit(aux, event));
+    }
+
+    #[inline]
+    fn find_parent(
+        &self,
+        pred: impl FnMut(&Common) -> bool,
+        max_distance: impl Into<Option<usize>> + Copy,
+    ) -> Option<CommonRef> {
+        self.common().with(|x| x.find_parent(pred, max_distance))
+    }
+
+    fn set_layout<L: layout::Layout>(&mut self, layout: impl Into<Option<layout::Node<L>>>) {
+        self.common().with(|x| x.set_layout(layout));
+    }
+}
+
+impl<E: Element + ?Sized> ElementMixin for E {}

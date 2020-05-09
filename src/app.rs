@@ -65,8 +65,9 @@ pub struct AppData<T> {
     cursor: gfx::Point,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppOptions {
+    pub window_title: String,
     pub window_size: gfx::Size,
     pub background: gfx::Color,
 }
@@ -74,6 +75,7 @@ pub struct AppOptions {
 impl Default for AppOptions {
     fn default() -> Self {
         AppOptions {
+            window_title: "Otway UI".into(),
             window_size: gfx::Size::new(960.0, 540.0),
             background: gfx::Color::new(1.0, 1.0, 1.0, 1.0),
         }
@@ -88,10 +90,12 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
 ) -> Result<(), AppError> {
     let el = glutin::event_loop::EventLoop::new();
 
-    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::PhysicalSize::new(
-        options.window_size.width,
-        options.window_size.height,
-    ));
+    let wb = glutin::window::WindowBuilder::new()
+        .with_title(options.window_title.clone())
+        .with_inner_size(glutin::dpi::PhysicalSize::new(
+            options.window_size.width,
+            options.window_size.height,
+        ));
     let ctxt = glutin::ContextBuilder::new()
         .with_vsync(true)
         .build_windowed(wb, &el)?;
@@ -129,6 +133,18 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
         match event {
             Event::MainEventsCleared => ctxt.window().request_redraw(),
             Event::RedrawRequested(_) => {
+                let size = display.size();
+                if options.window_size.width != size.0 as f32
+                    || options.window_size.height != size.1 as f32
+                {
+                    display
+                        .resize((
+                            options.window_size.width as _,
+                            options.window_size.height as _,
+                        ))
+                        .expect("Display error when resizing");
+                }
+
                 cmds_a.push(
                     &mut display,
                     &[

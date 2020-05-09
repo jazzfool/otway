@@ -1,10 +1,20 @@
 use {crate::ui::layout, reclutch::display as gfx, std::collections::BTreeMap};
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct VStackConfig {
-    top_margin: f32,
-    bottom_margin: f32,
-    alignment: layout::Alignment,
+    pub top_margin: f32,
+    pub bottom_margin: f32,
+    pub alignment: layout::Alignment,
+}
+
+impl From<(f32, f32)> for VStackConfig {
+    fn from(margins: (f32, f32)) -> Self {
+        VStackConfig {
+            top_margin: margins.0,
+            bottom_margin: margins.1,
+            ..Default::default()
+        }
+    }
 }
 
 struct Item {
@@ -71,7 +81,7 @@ impl layout::Layout for VStack {
             if rect.size.width > width {
                 width = rect.size.width;
             }
-            height += rect.size.height;
+            height += rect.size.height + entry.config.top_margin + entry.config.bottom_margin;
         }
         gfx::Size::new(width, height)
     }
@@ -79,12 +89,16 @@ impl layout::Layout for VStack {
     fn update(&mut self, bounds: gfx::Rect) {
         let mut y = bounds.origin.y;
         for entry in self.entries.values_mut() {
+            y += entry.config.top_margin;
             let rect = entry.item.rect();
             entry.item.set_rect(gfx::Rect::new(
-                gfx::Point::new(bounds.origin.x, y),
+                gfx::Point::new(
+                    layout::align_x(rect, bounds, entry.config.alignment, 0.0),
+                    y,
+                ),
                 rect.size,
             ));
-            y += rect.size.height;
+            y += rect.size.height + entry.config.bottom_margin;
         }
     }
 }

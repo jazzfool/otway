@@ -54,7 +54,7 @@ impl<T: 'static> Button<T> {
         self.common
             .with(|x| x.set_size(label_bounds.size + padding));
         let bounds = self.bounds();
-        let y = gfx::center_vertically(label_bounds, bounds).y;
+        let y = gfx::center_vertically(label_bounds, bounds).y - 1.0;
         let x = ui::layout::align_x(label_bounds, bounds, self.alignment, padding.width / 2.0);
 
         self.label
@@ -73,6 +73,7 @@ impl<T: 'static> ui::Element for Button<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
+        ui::propagate_repaint(self);
         ui::dispatch(self, aux, |x| &mut x.listener);
     }
 

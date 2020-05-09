@@ -76,27 +76,6 @@ impl<T: 'static, S: 'static> View<T, S> {
         )
     }
 
-    /// Creates a child and makes it a layout child of another widget.
-    pub fn lay<W: WidgetChildren<T> + 'static, L: layout::Layout + 'static>(
-        &mut self,
-        new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
-        aux: &mut Aux<T>,
-        layout: ChildRef<L>,
-        config: L::Config,
-    ) -> ChildRef<W> {
-        self.children
-            .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
-        let child = ChildRef(
-            self.next_child,
-            self.children.get(&self.next_child).as_ref().unwrap().id(),
-            Default::default(),
-        );
-        self.next_child += 1;
-        let common = self.get::<W>(child).unwrap().common().clone();
-        // TODO: add child to layout
-        child
-    }
-
     /// Returns a immutable reference to a child widget.
     #[inline]
     pub fn get<W: WidgetChildren<T> + 'static>(&self, child: ChildRef<W>) -> Option<&W> {

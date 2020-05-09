@@ -1,5 +1,5 @@
 use {
-    crate::{theme, ui},
+    crate::{prelude::*, theme, ui},
     reclutch::display as gfx,
 };
 
@@ -42,7 +42,7 @@ impl<T: 'static> Label<T> {
     }
 
     fn repaint_and_resize(&mut self) {
-        self.common.repaint();
+        self.repaint();
         let size = theme::size_hint(self, |x| &mut x.painter);
         self.common.with(|x| x.set_size(size));
     }

@@ -63,7 +63,7 @@ impl FlatTheme {
             }
         };
 
-        let font_sizes = font_sizes.unwrap_or_else(|| FontSizes { ui: 12.0 });
+        let font_sizes = font_sizes.unwrap_or_else(|| FontSizes { ui: 14.0 });
 
         Ok(FlatTheme(Rc::new(Inner { fonts, font_sizes })))
     }
@@ -93,9 +93,9 @@ impl<T: 'static> Theme<T> for FlatTheme {
         }
     }
 
-    fn standards(&self) -> &Standards {
-        &Standards {
-            label_size: 16.0,
+    fn standards(&self) -> Standards {
+        Standards {
+            label_size: self.0.font_sizes.ui,
             button_text_alignment: ui::layout::Alignment::Middle,
         }
     }
@@ -116,7 +116,7 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
         let mut out = gfx::DisplayListBuilder::new();
 
         out.push_round_rectangle(
-            obj.common().with(|x| x.absolute_rect()),
+            obj.bounds(),
             CORNER_RADII,
             gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(
                 aux.theme.color(colors::STRONG_BACKGROUND),
@@ -129,7 +129,7 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
 
     #[inline]
     fn size_hint(&mut self, _obj: &mut kit::Button<T>) -> gfx::Size {
-        gfx::Size::new(20.0, 10.0)
+        gfx::Size::new(20.0, 6.0)
     }
 }
 

@@ -1,9 +1,8 @@
 use otway::{
-    app, kit,
+    app,
     prelude::*,
-    reclutch::display as gfx,
     theme,
-    ui::{self, view::View},
+    ui::{self, layout, view::View},
 };
 
 type AuxData = ();
@@ -16,44 +15,48 @@ struct DecrementEvent;
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
     let mut view = View::new(parent, aux, 0);
 
-    let incr = view
-        .button_ext("Increment", aux)
+    let mut vfill = layout::VFill::new().into_node(None);
+    let mut vstack = layout::VStack::new().into_node(None);
+    let mut hstack = layout::HStack::new().into_node(None);
+
+    let label = view
+        .label(aux)
+        .layout(&mut vstack, Some((0.0, 5.0).into()))
+        .size(14.0)
+        .into_inner();
+
+    view.button(aux)
+        .text("Increment")
+        .layout(&mut hstack, Some((0.0, 5.0).into()))
         .press(|view, aux, _| {
             view.set_state(|x| *x += 1);
             aux.emit(view, IncrementEvent);
-        })
-        .inner();
+        });
 
-    let decr = view
-        .button_ext("Decrement", aux)
+    view.button(aux)
+        .text("Decrement")
+        .layout(&mut hstack, Some((0.0, 5.0).into()))
         .press(|view, aux, _| {
             view.set_state(|x| *x -= 1);
             aux.emit(view, DecrementEvent);
-        })
-        .inner();
+        });
 
-    let label = view.label_ext("bro", aux).size(42.0).into_ref();
-
-    let mut vstack = ui::layout::Node::new(ui::layout::vstack::VStack::new(), None);
-    let mut hstack = ui::layout::Node::new(ui::layout::hstack::HStack::new(), None);
-    hstack.push(view.get(incr).unwrap(), None);
-    hstack.push(view.get(decr).unwrap(), None);
-    vstack.push(view.get(label).unwrap(), None);
     vstack.push(hstack, None);
-
-    view.common().with(|x| x.set_layout(vstack));
-
-    ui::layout::update_layout(&view);
+    vfill.push(
+        vstack,
+        Some((1.0, layout::SideMargins::new_all_same(5.0)).into()),
+    );
+    view.set_layout(vfill);
 
     view.state_changed(move |view| {
         let count = *view.state();
         view.get_mut(label)
             .unwrap()
-            .set_text(format!("Count = {}", count));
+            .set_text(format!("Count: {}", count));
+        layout::update_layout(view);
     });
 
     view.set_state(|_| {});
-
     view
 }
 

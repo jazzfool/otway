@@ -1,5 +1,8 @@
 pub mod hstack;
+pub mod vfill;
 pub mod vstack;
+
+pub use {hstack::*, vfill::*, vstack::*};
 
 use {
     crate::{prelude::*, ui},
@@ -61,6 +64,14 @@ pub trait Layout: 'static {
 
     fn min_size(&self) -> gfx::Size;
     fn update(&mut self, bounds: gfx::Rect);
+
+    #[inline]
+    fn into_node(self, size: Option<gfx::Size>) -> Node<Self>
+    where
+        Self: Sized,
+    {
+        Node::new(self, size)
+    }
 }
 
 pub(crate) trait DynNode: as_any::AsAny {
@@ -70,6 +81,7 @@ pub(crate) trait DynNode: as_any::AsAny {
     fn rect(&self) -> gfx::Rect;
 }
 
+#[derive(Debug, Clone)]
 pub struct Node<L: Layout> {
     layout: L,
     rect: gfx::Rect,
@@ -214,7 +226,7 @@ pub enum Alignment {
 impl Default for Alignment {
     #[inline]
     fn default() -> Self {
-        Alignment::Middle
+        Alignment::Begin
     }
 }
 
@@ -223,5 +235,13 @@ pub fn align_x(inner: gfx::Rect, outer: gfx::Rect, align: Alignment, padding: f3
         Alignment::Begin => outer.origin.x + padding,
         Alignment::Middle => gfx::center_horizontally(inner, outer).x,
         Alignment::End => outer.max_x() - inner.size.width - padding,
+    }
+}
+
+pub fn align_y(inner: gfx::Rect, outer: gfx::Rect, align: Alignment, padding: f32) -> f32 {
+    match align {
+        Alignment::Begin => outer.origin.y + padding,
+        Alignment::Middle => gfx::center_vertically(inner, outer).y,
+        Alignment::End => outer.max_y() - inner.size.height - padding,
     }
 }
