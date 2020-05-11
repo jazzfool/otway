@@ -199,6 +199,12 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                     let size = ctxt.window().inner_size();
                     options.window_size.width = size.width as _;
                     options.window_size.height = size.height as _;
+
+                    cmds_a.repaint();
+                    cmds_b.repaint();
+                    let size: glutin::dpi::LogicalSize<f64> = size.to_logical(scale_factor);
+                    root.set_size(gfx::Size::new(size.width as _, size.height as _));
+                    ui::layout::update_layout(&root);
                 }
                 WindowEvent::Resized(size) => {
                     options.window_size.width = size.width as _;
