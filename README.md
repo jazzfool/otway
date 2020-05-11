@@ -4,7 +4,7 @@
 
 ## Counter Example
 
-![Counter UI Screenshot](.media/counter.png)
+<img src=".media/counter.png" width="40%"/>
 
 ```rust
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
