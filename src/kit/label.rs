@@ -7,6 +7,7 @@ use {
 pub struct Label<T: 'static> {
     text: gfx::DisplayText,
     size: f32,
+    max_width: Option<f32>,
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
 }
@@ -15,6 +16,7 @@ impl<T: 'static> Label<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         Label {
             text: gfx::DisplayText::Simple(Default::default()),
+            max_width: None,
             size: aux.theme.standards().label_size,
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::LABEL),
             common: ui::CommonRef::new(parent),
@@ -39,6 +41,17 @@ impl<T: 'static> Label<T> {
     #[inline]
     pub fn size(&self) -> f32 {
         self.size
+    }
+
+    #[inline]
+    pub fn set_max_width(&mut self, max_width: impl Into<Option<f32>>) {
+        self.max_width = max_width.into();
+        self.repaint_and_resize();
+    }
+
+    #[inline]
+    pub fn max_width(&self) -> Option<f32> {
+        self.max_width
     }
 
     fn repaint_and_resize(&mut self) {

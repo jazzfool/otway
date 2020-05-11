@@ -1,11 +1,13 @@
 pub mod hstack;
+pub mod relative_box;
 pub mod vfill;
 pub mod vstack;
 
-pub use {hstack::*, vfill::*, vstack::*};
+pub use {hstack::*, relative_box::*, vfill::*, vstack::*};
 
 use {
     crate::{prelude::*, ui},
+    as_any::Downcast,
     reclutch::display as gfx,
 };
 
@@ -79,6 +81,7 @@ pub(crate) trait DynNode: as_any::AsAny {
     fn update(&mut self);
     fn set_rect(&mut self, rect: gfx::Rect);
     fn rect(&self) -> gfx::Rect;
+    fn set_size(&mut self, size: Option<gfx::Size>);
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +176,11 @@ impl<L: Layout> DynNode for Node<L> {
         }
     }
 
+    fn set_size(&mut self, size: Option<gfx::Size>) {
+        self.dynamic = size.is_none();
+        self.rect.size = size.unwrap_or_default();
+    }
+
     #[inline]
     fn set_rect(&mut self, rect: gfx::Rect) {
         self.rect = rect;
@@ -184,9 +192,15 @@ impl<L: Layout> DynNode for Node<L> {
     }
 }
 
-impl as_any::Downcast for dyn DynNode {}
+impl Downcast for dyn DynNode {}
 
 pub struct DynamicNode(pub(crate) Box<dyn DynNode>);
+
+impl DynamicNode {
+    pub fn cast_mut<L: Layout>(&mut self) -> Option<&mut Node<L>> {
+        self.0.as_mut().downcast_mut::<Node<L>>()
+    }
+}
 
 pub fn update_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
     resize_layout(widget);
@@ -210,6 +224,7 @@ fn resize_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
     widget.common().with(|x| {
         if let Some(DynamicNode(layout)) = &mut x.layout {
             layout.resize();
+            x.update_layout_size();
         }
     });
 }

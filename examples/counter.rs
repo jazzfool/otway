@@ -15,14 +15,12 @@ struct DecrementEvent;
 fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
     let mut view = View::new(parent, aux, 0);
 
-    let mut vfill = layout::VFill::new().into_node(None);
     let mut vstack = layout::VStack::new().into_node(None);
     let mut hstack = layout::HStack::new().into_node(None);
 
     let label = view
         .label(aux)
         .layout(&mut vstack, Some((0.0, 5.0).into()))
-        .size(14.0)
         .into_inner();
 
     view.button(aux)
@@ -42,11 +40,15 @@ fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
         });
 
     vstack.push(hstack, None);
-    vfill.push(
-        vstack,
-        Some((1.0, layout::SideMargins::new_all_same(5.0)).into()),
-    );
-    view.set_layout(vfill);
+
+    view
+        .label(aux)
+        .text("This should be a counter with 2 buttons and label, centered in the middle of the window. If you resize the window, it should stay centered. If any of this is not happening for you, please open an issue on GitHub!")
+        .max_width(150.0)
+        .layout(&mut vstack, Some((10.0, 0.0).into()))
+        .into_inner();
+
+    view.set_layout(vstack);
 
     view.state_changed(move |view| {
         let count = *view.state();
@@ -57,6 +59,12 @@ fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
     });
 
     view.set_state(|_| {});
+
+    let mut rb = layout::RelativeBox::new(layout::RelativeBoxConfig::center()).into_node(None);
+    rb.push(&view, ());
+    aux.central_widget.with(|x| x.set_layout(rb));
+    view.set_layout_mode(ui::LayoutMode::Shrink);
+
     view
 }
 

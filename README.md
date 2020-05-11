@@ -59,8 +59,6 @@ view.on(btn, move |view, aux, event: &PressEvent| {
 });
 ```
 
-The important detail here is that this syntax works with custom widgets too - and you can still write a mix-in trait to add the conveniences seen in the first example for custom widgets.
-
 There exists an underlying widget tree in the form of `CommonRef/Common`. Each widget has its own `Common`. The advantage of this secondary reference-based tree hosted/owned by the corresponding widgets of the primary tree is that traversals can go upwards.
 
 ### Event Queue Synchronization

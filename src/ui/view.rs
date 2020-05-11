@@ -180,6 +180,7 @@ impl<T: 'static, S: 'static> Element for View<T, S> {
 
     #[inline]
     fn update(&mut self, aux: &mut Aux<T>) {
+        propagate_repaint(self);
         dispatch(self, aux, |x| &mut x.listener);
     }
 }

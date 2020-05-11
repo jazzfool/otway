@@ -1,5 +1,5 @@
 use {
-    crate::{theme, ui},
+    crate::{prelude::*, theme, ui},
     glutin::event::{self as winit_event, Event, WindowEvent},
     reclutch::display::{self as gfx, GraphicsDisplay},
     thiserror::Error,
@@ -45,8 +45,11 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
 }
 
 impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> Root<T, W> {
-    pub fn new(new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W, aux: &mut AppAux<T>) -> Self {
-        let common = ui::CommonRef::new(None);
+    pub fn new(
+        new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W,
+        common: ui::CommonRef,
+        aux: &mut AppAux<T>,
+    ) -> Self {
         Root {
             child: new(common.clone(), aux),
             common,
@@ -82,6 +85,8 @@ impl Default for AppOptions {
     }
 }
 
+pub struct WindowResizeEvent(pub gfx::Size);
+
 pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
     new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W,
     aux: T,
@@ -109,6 +114,7 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                 options.window_size.height as _,
             ),
         })?;
+    let central_widget = ui::CommonRef::new(None);
     let mut aux = ui::Aux {
         data: AppData {
             data: aux,
@@ -117,8 +123,10 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
         theme: theme(&mut display),
         id: uniq::id::next(),
         queue: Default::default(),
+        central_widget: central_widget.clone(),
     };
-    let mut root = Root::new(new, &mut aux);
+    let mut root = Root::new(new, central_widget, &mut aux);
+    root.set_layout_mode(ui::LayoutMode::Fill);
     let mut key_mods = ui::KeyModifiers {
         shift: false,
         ctrl: false,
@@ -126,6 +134,12 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
         logo: false,
     };
     let (mut cmds_a, mut cmds_b) = (gfx::CommandGroup::new(), gfx::CommandGroup::new());
+
+    root.set_size({
+        let logical = ctxt.window().inner_size().to_logical::<f64>(scale_factor);
+        gfx::Size::new(logical.width as _, logical.height as _)
+    });
+    ui::layout::update_layout(&root);
 
     el.run(move |event, _window, control_flow| {
         *control_flow = glutin::event_loop::ControlFlow::Wait;
@@ -189,6 +203,11 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                 WindowEvent::Resized(size) => {
                     options.window_size.width = size.width as _;
                     options.window_size.height = size.height as _;
+                    aux.emit(&aux.id, WindowResizeEvent(options.window_size));
+
+                    let size: glutin::dpi::LogicalSize<f64> = size.to_logical(scale_factor);
+                    root.set_size(gfx::Size::new(size.width as _, size.height as _));
+                    ui::layout::update_layout(&root);
                 }
                 WindowEvent::ModifiersChanged(key_modifiers) => {
                     key_mods.shift = key_modifiers.shift();

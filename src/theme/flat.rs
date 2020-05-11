@@ -138,18 +138,23 @@ struct LabelPainter {
 }
 
 impl LabelPainter {
-    fn text_bounds(&self, text: gfx::DisplayText, size: f32) -> gfx::Size {
-        gfx::TextDisplayItem {
+    fn text_bounds(&self, text: gfx::DisplayText, size: f32, max_width: Option<f32>) -> gfx::Size {
+        let item = gfx::TextDisplayItem {
             text,
             font: self.theme.fonts.ui_regular.0,
             font_info: self.theme.fonts.ui_regular.1.clone(),
             size,
             bottom_left: Default::default(),
             color: gfx::StyleColor::Color(Default::default()),
+        };
+
+        if let Some(max_width) = max_width {
+            let height = item.bounds().unwrap().size.height;
+            let items = item.linebreak(max_width, height, true).unwrap();
+            gfx::Size::new(max_width, height * items.len() as f32)
+        } else {
+            item.bounds().unwrap().size
         }
-        .bounds()
-        .unwrap()
-        .size
     }
 }
 
@@ -170,13 +175,22 @@ impl<T: 'static> TypedPainter<T> for LabelPainter {
 
         text.set_top_left(obj.bounds().origin);
 
-        out.push_text(text, None);
+        let items = if let Some(max_width) = obj.max_width() {
+            let height = text.bounds().unwrap().size.height;
+            text.linebreak(max_width, height, true).unwrap()
+        } else {
+            vec![text]
+        };
+
+        for item in items {
+            out.push_text(item, None);
+        }
 
         out.build()
     }
 
     #[inline]
     fn size_hint(&mut self, obj: &mut kit::Label<T>) -> gfx::Size {
-        self.text_bounds(obj.text().clone(), obj.size())
+        self.text_bounds(obj.text().clone(), obj.size(), obj.max_width())
     }
 }

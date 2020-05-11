@@ -250,6 +250,12 @@ impl<'a, T: 'static, S: 'static> LabelRef<'a, T, S> {
         self
     }
 
+    #[inline]
+    pub fn max_width(self, max_width: impl Into<Option<f32>>) -> Self {
+        self.1.get_mut(self.0).unwrap().set_max_width(max_width);
+        self
+    }
+
     /// Sets the size of the label text.
     #[inline]
     pub fn size(self, size: f32) -> Self {

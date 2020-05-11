@@ -23,6 +23,8 @@ pub struct Aux<T: 'static> {
     pub id: u64,
     /// Global queue.
     pub queue: uniq::rc::Queue,
+    /// Top-level (or near top-level) widget which fills the entire window.
+    pub central_widget: CommonRef,
 }
 
 impl<T: 'static> Aux<T> {
@@ -476,6 +478,23 @@ impl Interaction {
 
 pub struct TransformEvent;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LayoutMode {
+    /// The size of the layout and the size of the widget are independent of each other.
+    IndependentSize,
+    /// The size of the layout will follow the size of the widget.
+    Fill,
+    /// The size of the widget will follow the size of the layout.
+    Shrink,
+}
+
+impl Default for LayoutMode {
+    #[inline]
+    fn default() -> Self {
+        LayoutMode::IndependentSize
+    }
+}
+
 /// The core, widget-agnostic object.
 /// This should be stored within widgets via `Element`.
 /// It handles the widget rectangle, parent, and other fundamental things.
@@ -487,6 +506,7 @@ pub struct TransformEvent;
 pub struct Common {
     pub(crate) interaction: Interaction,
     pub(crate) layout: Option<layout::DynamicNode>,
+    layout_mode: LayoutMode,
     visible: bool,
     updates: bool,
     rect: gfx::Rect,
@@ -514,6 +534,7 @@ impl Common {
         Common {
             interaction: Interaction::default(),
             layout: None,
+            layout_mode: Default::default(),
             visible: true,
             updates: true,
             rect: Default::default(),
@@ -529,6 +550,7 @@ impl Common {
     pub fn set_rect(&mut self, rect: gfx::Rect) {
         self.rect = rect;
         self.repaint();
+        self.update_layout_size();
     }
 
     /// Returns the widget rectangle.
@@ -542,6 +564,7 @@ impl Common {
     pub fn set_size(&mut self, size: gfx::Size) {
         self.rect.size = size;
         self.repaint();
+        self.update_layout_size();
     }
 
     /// Returns the widget rectangle size.
@@ -551,13 +574,8 @@ impl Common {
     }
 
     /// Changes the widget rectangle position.
-    ///
-    /// If the widget is in a layout, nothing will happen.
     #[inline]
     pub fn set_position(&mut self, position: gfx::Point) {
-        if self.layout.is_some() {
-            return;
-        }
         self.rect.origin = position;
         self.repaint();
     }
@@ -694,6 +712,31 @@ impl Common {
     #[inline]
     pub fn set_layout<L: layout::Layout>(&mut self, layout: impl Into<Option<layout::Node<L>>>) {
         self.layout = layout.into().map(|x| layout::DynamicNode(Box::new(x)));
+    }
+
+    pub fn set_layout_mode(&mut self, mode: LayoutMode) {
+        self.layout_mode = mode;
+        self.update_layout_size();
+    }
+
+    #[inline]
+    pub fn layout_mode(&self) -> LayoutMode {
+        self.layout_mode
+    }
+
+    fn update_layout_size(&mut self) {
+        let size = self.size();
+        let mut layout_size = None;
+        if let Some(layout::DynamicNode(layout)) = &mut self.layout {
+            match self.layout_mode {
+                LayoutMode::IndependentSize => layout.set_size(None),
+                LayoutMode::Fill => layout.set_size(Some(size)),
+                LayoutMode::Shrink => layout_size = Some(layout.rect().size),
+            }
+        }
+        if let Some(size) = layout_size {
+            self.rect.size = size;
+        }
     }
 }
 
@@ -985,6 +1028,16 @@ pub trait ElementMixin: Element {
 
     fn set_layout<L: layout::Layout>(&mut self, layout: impl Into<Option<layout::Node<L>>>) {
         self.common().with(|x| x.set_layout(layout));
+    }
+
+    #[inline]
+    fn set_layout_mode(&mut self, mode: LayoutMode) {
+        self.common().with(|x| x.set_layout_mode(mode));
+    }
+
+    #[inline]
+    fn layout_mode(&self) -> LayoutMode {
+        self.common().with(|x| x.layout_mode())
     }
 }
 
