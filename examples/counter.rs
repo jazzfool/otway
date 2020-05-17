@@ -43,7 +43,7 @@ fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
 
     view
         .label(aux)
-        .text("This should be a counter with 2 buttons and label, centered in the middle of the window. If you resize the window, it should stay centered. If any of this is not happening for you, please open an issue on GitHub!")
+        .text("This should be a counter with 2 buttons and a label, centered in the middle of the window. If you resize the window, it should stay centered. If any of this is not happening for you, please open an issue on GitHub!")
         .max_width(150.0)
         .layout(&mut vstack, Some((10.0, 0.0).into()))
         .into_inner();
