@@ -31,8 +31,6 @@ type StateChangedCallback<T> = Box<dyn Fn(&mut T)>;
 /// - `S`; The state of this view. In essence, this is any data that represents an instantaneous phase of your UI.
 /// However, this isn't a strict requirement. If you simply want to store additional data associated with a view,
 /// this can also be used for that.
-/// - `E`; Event type emitted by the event node. By default, this is `NoEvent` (i.e. no events will be emitted).
-/// This can be overriden to be any static type that inherits `reclutch::verbgraph::Event`.
 pub struct View<T: 'static, S: 'static> {
     state: S,
     next_child: u64,
