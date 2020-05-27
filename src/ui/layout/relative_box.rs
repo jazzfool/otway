@@ -76,11 +76,8 @@ impl layout::Layout for RelativeBox {
     type Config = ();
     type Id = ();
 
+    #[inline]
     fn push(&mut self, item: impl Into<layout::Item>, _: ()) {
-        if self.item.is_some() {
-            panic!("RelativeBox can only have one item at a time; call `remove` first to remove the existing item.");
-        }
-
         self.item = Some(item.into());
     }
 
