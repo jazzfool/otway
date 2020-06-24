@@ -70,9 +70,12 @@ impl layout::Layout for VFill {
     }
 
     #[inline]
-    fn remove(&mut self, id: &u64) {
+    fn remove(&mut self, id: &u64) -> Option<layout::Item> {
         if let Some(entry) = self.entries.remove(id) {
             self.total_portions -= entry.config.flex;
+            Some(entry.item)
+        } else {
+            None
         }
     }
 
@@ -91,10 +94,22 @@ impl layout::Layout for VFill {
         self.entries.len()
     }
 
+    fn items(&self) -> Vec<(&layout::Item, &u64)> {
+        self.entries
+            .values()
+            .map(|x| &x.item)
+            .zip(self.entries.keys())
+            .collect()
+    }
+
     fn min_size(&self) -> gfx::Size {
         let mut width = 0.0;
         let mut height = 0.0;
         for entry in self.entries.values() {
+            if !layout::should_layout(&entry.item) {
+                continue;
+            }
+
             let rect = entry.item.rect();
             if rect.size.width > width {
                 width = rect.size.width;
@@ -108,6 +123,10 @@ impl layout::Layout for VFill {
         let width_portion = bounds.size.width / self.total_portions;
         let mut y = bounds.origin.y;
         for entry in self.entries.values_mut() {
+            if !layout::should_layout(&entry.item) {
+                continue;
+            }
+
             y += entry.config.margins.top;
             let mut rect = entry.item.rect();
             rect.size.height = width_portion * entry.config.flex;

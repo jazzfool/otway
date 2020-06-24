@@ -15,6 +15,13 @@ use {super::*, std::collections::BTreeMap};
 #[derivative(Hash(bound = ""))]
 pub struct ChildRef<W>(u64, u64, std::marker::PhantomData<W>);
 
+impl<W> ChildRef<W> {
+    #[inline]
+    pub fn null() -> Self {
+        ChildRef(std::u64::MAX, std::u64::MAX, Default::default())
+    }
+}
+
 impl<W> Id for ChildRef<W> {
     #[inline]
     fn id(&self) -> u64 {
@@ -113,6 +120,19 @@ impl<T: 'static, S: 'static> View<T, S> {
         let id = self.get(child).map(|x| x.common().with(|x| x.id()));
         if let Some(id) = id {
             self.listener.on(id, handler);
+        }
+    }
+
+    /// Handles an event from a child node latently.
+    /// See [`late_on`](Listener::late_on)
+    pub fn late_handle<W: WidgetChildren<T> + 'static, Eo: 'static>(
+        &mut self,
+        child: ChildRef<W>,
+        handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
+    ) {
+        let id = self.get(child).map(|x| x.common().with(|x| x.id()));
+        if let Some(id) = id {
+            self.listener.late_on(id, handler);
         }
     }
 

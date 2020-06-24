@@ -54,8 +54,8 @@ impl layout::Layout for VStack {
     }
 
     #[inline]
-    fn remove(&mut self, id: &u64) {
-        self.entries.remove(id);
+    fn remove(&mut self, id: &u64) -> Option<layout::Item> {
+        self.entries.remove(id).map(|x| x.item)
     }
 
     #[inline]
@@ -73,10 +73,22 @@ impl layout::Layout for VStack {
         self.entries.len()
     }
 
+    fn items(&self) -> Vec<(&layout::Item, &u64)> {
+        self.entries
+            .values()
+            .map(|x| &x.item)
+            .zip(self.entries.keys())
+            .collect()
+    }
+
     fn min_size(&self) -> gfx::Size {
         let mut width = 0.0;
         let mut height = 0.0;
         for entry in self.entries.values() {
+            if !layout::should_layout(&entry.item) {
+                continue;
+            }
+
             let rect = entry.item.rect();
             if rect.size.width > width {
                 width = rect.size.width;
@@ -89,6 +101,10 @@ impl layout::Layout for VStack {
     fn update(&mut self, bounds: gfx::Rect) {
         let mut y = bounds.origin.y;
         for entry in self.entries.values_mut() {
+            if !layout::should_layout(&entry.item) {
+                continue;
+            }
+
             y += entry.config.top_margin;
             let rect = entry.item.rect();
             entry.item.set_rect(gfx::Rect::new(

@@ -78,6 +78,11 @@ impl<T: 'static> Theme<T> for FlatTheme {
             painters::LABEL => Box::new(LabelPainter {
                 theme: Rc::clone(&self.0),
             }),
+            painters::TEXT_BOX => Box::new(TextBoxPainter {
+                theme: Rc::clone(&self.0),
+                count: 0,
+                last_cur: std::usize::MAX,
+            }),
             _ => unimplemented!(),
         }
     }
@@ -161,7 +166,11 @@ impl LabelPainter {
 impl<T: 'static> TypedPainter<T> for LabelPainter {
     type Object = kit::Label<T>;
 
-    fn paint(&mut self, obj: &mut kit::Label<T>, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
+    fn paint(
+        &mut self,
+        obj: &mut kit::Label<T>,
+        _aux: &mut ui::Aux<T>,
+    ) -> Vec<gfx::DisplayCommand> {
         let mut out = gfx::DisplayListBuilder::new();
 
         let mut text = gfx::TextDisplayItem {
@@ -170,7 +179,7 @@ impl<T: 'static> TypedPainter<T> for LabelPainter {
             font_info: self.theme.fonts.ui_regular.1.clone(),
             size: obj.size(),
             bottom_left: Default::default(),
-            color: gfx::StyleColor::Color(aux.theme.color(colors::FOREGROUND)),
+            color: gfx::StyleColor::Color(obj.color()),
         };
 
         text.set_top_left(obj.bounds().origin);
@@ -192,5 +201,73 @@ impl<T: 'static> TypedPainter<T> for LabelPainter {
     #[inline]
     fn size_hint(&mut self, obj: &mut kit::Label<T>) -> gfx::Size {
         self.text_bounds(obj.text().clone(), obj.size(), obj.max_width())
+    }
+}
+
+struct TextBoxPainter {
+    theme: Rc<Inner>,
+    count: usize,
+    last_cur: usize,
+}
+
+impl<T: 'static> TypedPainter<T> for TextBoxPainter {
+    type Object = kit::TextBox<T>;
+
+    fn paint(
+        &mut self,
+        obj: &mut kit::TextBox<T>,
+        aux: &mut ui::Aux<T>,
+    ) -> Vec<gfx::DisplayCommand> {
+        if !aux.has_focus(obj.common()) {
+            return Default::default();
+        }
+
+        self.count += 1;
+
+        if self.last_cur != obj.cursor() {
+            self.count = 0;
+        }
+
+        self.last_cur = obj.cursor();
+
+        if self.count > 60 {
+            self.count = 0;
+            return Default::default();
+        } else if self.count > 30 {
+            return Default::default();
+        }
+
+        let mut out = gfx::DisplayListBuilder::new();
+
+        let cur = gfx::TextDisplayItem {
+            text: obj.text().into(),
+            font: self.theme.fonts.ui_regular.0,
+            font_info: self.theme.fonts.ui_regular.1.clone(),
+            size: self.theme.font_sizes.ui,
+            bottom_left: Default::default(),
+            color: gfx::StyleColor::Color(Default::default()),
+        }
+        .limited_bounds(obj.cursor())
+        .unwrap()
+        .size
+        .round();
+
+        let pos = obj.bounds().origin;
+        out.push_line(
+            gfx::Point::new(pos.x + cur.width, pos.y),
+            gfx::Point::new(pos.x + cur.width, pos.y + cur.height),
+            gfx::GraphicsDisplayStroke {
+                thickness: 1.,
+                color: aux.theme.color(colors::STRONG_FOREGROUND).into(),
+                ..Default::default()
+            },
+            None,
+        );
+
+        out.build()
+    }
+
+    fn size_hint(&mut self, _obj: &mut kit::TextBox<T>) -> gfx::Size {
+        Default::default()
     }
 }

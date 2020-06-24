@@ -82,8 +82,8 @@ impl layout::Layout for RelativeBox {
     }
 
     #[inline]
-    fn remove(&mut self, _: &()) {
-        self.item = None;
+    fn remove(&mut self, _: &()) -> Option<layout::Item> {
+        self.item.take()
     }
 
     #[inline]
@@ -101,9 +101,21 @@ impl layout::Layout for RelativeBox {
         self.item.is_some() as _
     }
 
+    fn items(&self) -> Vec<(&layout::Item, &Self::Id)> {
+        if let Some(item) = &self.item {
+            vec![(item, &())]
+        } else {
+            Vec::new()
+        }
+    }
+
     fn min_size(&self) -> gfx::Size {
         if let Some(item) = &self.item {
-            item.rect().size
+            if !layout::should_layout(item) {
+                Default::default()
+            } else {
+                item.rect().size
+            }
         } else {
             Default::default()
         }
@@ -111,6 +123,10 @@ impl layout::Layout for RelativeBox {
 
     fn update(&mut self, bounds: gfx::Rect) {
         if let Some(item) = &mut self.item {
+            if !layout::should_layout(item) {
+                return;
+            }
+
             let mut rect = item.rect();
             let position = self.config.position;
             rect.size = if let Some(size) = self.config.size {

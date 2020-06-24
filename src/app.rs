@@ -40,6 +40,7 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
             },
             display,
             aux,
+            None,
         )
     }
 }
@@ -85,7 +86,10 @@ impl Default for AppOptions {
     }
 }
 
-pub struct WindowResizeEvent(pub gfx::Size);
+pub struct WindowResizeEvent {
+    pub physical: gfx::Size,
+    pub logical: gfx::Size,
+}
 
 pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
     new: impl FnOnce(ui::CommonRef, &mut AppAux<T>) -> W,
@@ -124,6 +128,7 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
         id: uniq::id::next(),
         queue: Default::default(),
         central_widget: central_widget.clone(),
+        focus_widget: Default::default(),
     };
     let mut root = Root::new(new, central_widget, &mut aux);
     root.set_layout_mode(ui::LayoutMode::Fill);
@@ -142,7 +147,9 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
     ui::layout::update_layout(&root);
 
     el.run(move |event, _window, control_flow| {
-        *control_flow = glutin::event_loop::ControlFlow::Wait;
+        *control_flow = glutin::event_loop::ControlFlow::WaitUntil(
+            std::time::Instant::now() + std::time::Duration::from_millis(16),
+        );
 
         match event {
             Event::MainEventsCleared => ctxt.window().request_redraw(),
@@ -173,6 +180,8 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                     false,
                     None,
                 );
+
+                root.repaint();
 
                 ui::propagate_draw(&mut root, &mut display, &mut aux);
 
@@ -209,11 +218,17 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                 WindowEvent::Resized(size) => {
                     options.window_size.width = size.width as _;
                     options.window_size.height = size.height as _;
-                    aux.emit(&aux.id, WindowResizeEvent(options.window_size));
 
                     let size: glutin::dpi::LogicalSize<f64> = size.to_logical(scale_factor);
                     root.set_size(gfx::Size::new(size.width as _, size.height as _));
                     ui::layout::update_layout(&root);
+                    aux.emit(
+                        &aux.id,
+                        WindowResizeEvent {
+                            physical: options.window_size,
+                            logical: gfx::Size::new(size.width as _, size.height as _),
+                        },
+                    );
                 }
                 WindowEvent::ModifiersChanged(key_modifiers) => {
                     key_mods.shift = key_modifiers.shift();
@@ -253,6 +268,26 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                         ),
                     };
                 }
+                WindowEvent::KeyboardInput { input, .. } => match input.state {
+                    winit_event::ElementState::Pressed => aux.queue.emit(
+                        aux.id,
+                        ui::KeyPressEvent(ui::ConsumableEvent::new(
+                            input.virtual_keycode.unwrap().into(),
+                        )),
+                    ),
+                    winit_event::ElementState::Released if input.virtual_keycode.is_some() => {
+                        aux.queue.emit(
+                            aux.id,
+                            ui::KeyReleaseEvent(ui::ConsumableEvent::new(
+                                input.virtual_keycode.unwrap().into(),
+                            )),
+                        )
+                    }
+                    _ => {}
+                },
+                WindowEvent::ReceivedCharacter(c) if !c.is_control() => aux
+                    .queue
+                    .emit(aux.id, ui::TextEvent(ui::ConsumableEvent::new(c))),
                 _ => {}
             },
             _ => return,

@@ -8,6 +8,7 @@ pub struct Label<T: 'static> {
     text: gfx::DisplayText,
     size: f32,
     max_width: Option<f32>,
+    color: gfx::Color,
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
 }
@@ -18,6 +19,7 @@ impl<T: 'static> Label<T> {
             text: gfx::DisplayText::Simple(Default::default()),
             max_width: None,
             size: aux.theme.standards().label_size,
+            color: aux.theme.color(theme::colors::FOREGROUND),
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::LABEL),
             common: ui::CommonRef::new(parent),
         }
@@ -54,10 +56,20 @@ impl<T: 'static> Label<T> {
         self.max_width
     }
 
+    pub fn set_color(&mut self, color: gfx::Color) {
+        self.color = color;
+        self.repaint();
+    }
+
+    #[inline]
+    pub fn color(&self) -> gfx::Color {
+        self.color
+    }
+
     fn repaint_and_resize(&mut self) {
         self.repaint();
         let size = theme::size_hint(self, |x| &mut x.painter);
-        self.common.with(|x| x.set_size(size));
+        ElementMixin::set_size(self, size);
     }
 }
 
@@ -76,6 +88,7 @@ impl<T: 'static> ui::Element for Label<T> {
             |o, aux| theme::paint(o, |o| &mut o.painter, aux),
             display,
             aux,
+            None,
         );
     }
 }

@@ -53,16 +53,24 @@ impl<L: Layout> From<Node<L>> for Item {
     }
 }
 
+impl From<ui::CommonRef> for Item {
+    #[inline]
+    fn from(c: ui::CommonRef) -> Self {
+        Item::Widget(c)
+    }
+}
+
 pub trait Layout: 'static {
     type Config: 'static;
-    type Id;
+    type Id: Clone;
 
     fn push(&mut self, item: impl Into<Item>, config: Self::Config) -> Self::Id;
-    fn remove(&mut self, id: &Self::Id);
+    fn remove(&mut self, id: &Self::Id) -> Option<Item>;
 
     fn get(&self, id: &Self::Id) -> Option<&Item>;
     fn get_mut(&mut self, id: &Self::Id) -> Option<&mut Item>;
     fn len(&self) -> usize;
+    fn items(&self) -> Vec<(&Item, &Self::Id)>;
 
     fn min_size(&self) -> gfx::Size;
     fn update(&mut self, bounds: gfx::Rect);
@@ -76,9 +84,20 @@ pub trait Layout: 'static {
     }
 }
 
+/// Returns a boolean indicating whether an item should be subject to layout.
+pub fn should_layout(item: &Item) -> bool {
+    if let Item::Widget(c) = item {
+        let v = c.with(|x| x.visible());
+        v != ui::Visibility::NoLayout && v != ui::Visibility::None
+    } else {
+        true
+    }
+}
+
 pub(crate) trait DynNode: as_any::AsAny {
     fn resize(&mut self);
     fn update(&mut self);
+    fn process_detachments(&mut self);
     fn set_rect(&mut self, rect: gfx::Rect);
     fn rect(&self) -> gfx::Rect;
     fn set_size(&mut self, size: Option<gfx::Size>);
@@ -107,10 +126,7 @@ impl<L: Layout> Node<L> {
         }
     }
 
-    pub fn push(&mut self, item: impl Into<Item>, config: L::Config) -> L::Id
-    where
-        L::Id: Clone,
-    {
+    pub fn push(&mut self, item: impl Into<Item>, config: L::Config) -> L::Id {
         let item = item.into();
         let is_layout = !item.is_widget();
         let id = self.layout.push(item, config);
@@ -127,7 +143,6 @@ impl<L: Layout> Node<L> {
         if let Some(idx) = self.layouts.iter().position(|x| *x == *id) {
             self.layouts.remove(idx);
         }
-
         self.layout.remove(id);
     }
 }
@@ -176,6 +191,21 @@ impl<L: Layout> DynNode for Node<L> {
         }
     }
 
+    fn process_detachments(&mut self) {
+        let mut removal = Vec::new();
+        for (item, id) in self.layout.items().clone() {
+            if let Item::Widget(widget) = item {
+                if widget.with(|x| x.is_marked_for_detach()) {
+                    // the layout is wrongly keeping the widget alive
+                    removal.push(id.clone());
+                }
+            }
+        }
+        for id in removal {
+            self.layout.remove(&id);
+        }
+    }
+
     fn set_size(&mut self, size: Option<gfx::Size>) {
         self.dynamic = size.is_none();
         self.rect.size = size.unwrap_or_default();
@@ -204,9 +234,13 @@ impl DynamicNode {
 
 pub fn update_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
     resize_layout(widget);
+    update_layout_impl(widget);
+}
 
+fn update_layout_impl<T: 'static>(widget: &dyn WidgetChildren<T>) {
     widget.common().with(|x| {
         if let Some(DynamicNode(layout)) = &mut x.layout {
+            layout.process_detachments();
             layout.update();
         }
     });
@@ -218,7 +252,7 @@ pub fn update_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
 
 fn resize_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
     for child in widget.children() {
-        update_layout(child);
+        resize_layout(child);
     }
 
     widget.common().with(|x| {

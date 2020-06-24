@@ -7,7 +7,7 @@ use {
     std::{
         cell::Cell,
         ops::{Deref, DerefMut},
-        rc::Rc,
+        rc::{Rc, Weak},
     },
 };
 
@@ -25,23 +25,49 @@ pub struct Aux<T: 'static> {
     pub queue: uniq::rc::Queue,
     /// Top-level (or near top-level) widget which fills the entire window.
     pub central_widget: CommonRef,
+    /// Current widget that has focus.
+    pub focus_widget: Option<CommonRef>,
 }
 
 impl<T: 'static> Aux<T> {
     /// Creates a new [`Listener`](Listener).
+    #[inline]
     pub fn listen<O: 'static, A: 'static>(&self) -> Listener<O, A> {
-        Listener(Some(self.queue.listen()))
+        Listener(Some(self.queue.listen()), Vec::new())
     }
 
+    #[inline]
     pub fn emit<E: 'static>(&self, id: &impl Id, e: E) {
         self.queue.emit(id.id(), e);
+    }
+
+    pub fn grab_focus(&mut self, focus: impl Into<Option<CommonRef>>) {
+        let mut focus = focus.into();
+        if self.focus_widget != focus {
+            std::mem::swap(&mut self.focus_widget, &mut focus);
+            self.emit(
+                &self.id,
+                FocusChangedEvent {
+                    old_focus: focus,
+                    new_focus: self.focus_widget.clone(),
+                },
+            );
+        }
+    }
+
+    #[inline]
+    pub fn has_focus(&self, common: &CommonRef) -> bool {
+        self.focus_widget.as_ref() == Some(common)
     }
 }
 
 /// Listener compatible with the [`dispatch`](dispatch) function.
 ///
 /// Created via [`listen`](Aux::listen).
-pub struct Listener<O: 'static, A: 'static>(Option<uniq::rc::EventListener<O, A>>);
+pub struct Listener<O: 'static, A: 'static>(
+    Option<uniq::rc::EventListener<O, A>>,
+    Vec<Box<dyn FnOnce(&mut Self)>>,
+);
 
 impl<O: 'static, A: 'static> Listener<O, A> {
     /// Adds a handler to `self` and returns `Self`.
@@ -73,15 +99,62 @@ impl<O: 'static, A: 'static> Listener<O, A> {
         self.0.as_mut().unwrap().on(id, handler)
     }
 
+    /// Similar to [`on`](Listener::on), however the listener is added after processing of events is finished.
+    /// This implies that this method should be only used during event processing (via `dispatch`).
+    pub fn late_on<E: 'static>(
+        &mut self,
+        id: u64,
+        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
+    ) -> (u64, std::any::TypeId) {
+        self.1.push(Box::new(move |x| {
+            x.on(id, handler);
+        }));
+        (id, std::any::TypeId::of::<E>())
+    }
+
     /// Removes a handler which matches a specific `id` and event type.
     pub fn remove<E: 'static>(&mut self, id: u64) -> bool {
         self.0.as_mut().unwrap().remove::<E>(id)
+    }
+
+    /// Similar to [`remove`](Listener::remove), however the listener is removed after processing of events is finished.
+    /// Serves a similar purpose to [`late_on`](Listener::late_on).
+    pub fn late_remove<E: 'static>(&mut self, id: u64) {
+        self.1.push(Box::new(move |x| {
+            x.remove::<E>(id);
+        }));
     }
 
     /// Returns `true` if there is a handler handling `id` and event type `E`.
     pub fn contains<E: 'static>(&self, id: u64) -> bool {
         self.0.as_ref().unwrap().contains::<E>(id)
     }
+}
+
+#[repr(transparent)]
+pub struct ListenerList<O: 'static, A: 'static>(Option<Vec<Listener<O, A>>>);
+
+impl<O: 'static, A: 'static> ListenerList<O, A> {
+    #[inline]
+    pub fn new(list: Vec<Listener<O, A>>) -> Self {
+        ListenerList(Some(list))
+    }
+}
+
+pub fn dispatch_list<O: 'static, A: 'static>(
+    o: &mut O,
+    a: &mut A,
+    l: impl Fn(&mut O) -> &mut ListenerList<O, A>,
+) {
+    let mut ls = l(o).0.take().unwrap();
+    for l in &mut ls {
+        l.0.as_mut().unwrap().dispatch(o, a);
+        let lates = l.1.drain(..).collect::<Vec<_>>();
+        for late in lates {
+            late(l);
+        }
+    }
+    l(o).0 = Some(ls);
 }
 
 /// Dispatches the event handlers in a [`Listener`](Listener).
@@ -93,6 +166,10 @@ pub fn dispatch<O: 'static, A: 'static>(
     let mut ll = l(o).0.take().unwrap();
     ll.dispatch(o, a);
     l(o).0 = Some(ll);
+    let lates = l(o).1.drain(..).collect::<Vec<_>>();
+    for late in lates {
+        late(l(o));
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -186,7 +263,7 @@ macro_rules! keyboard_enum {
     }) => {
         #[doc = "Key on a keyboard."]
         #[repr(u32)]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum $name {
             $($v),*
         }
@@ -495,6 +572,53 @@ impl Default for LayoutMode {
     }
 }
 
+pub struct FocusChangedEvent {
+    pub old_focus: Option<CommonRef>,
+    pub new_focus: Option<CommonRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FocusMode {
+    /// The widget can only accept focus using keyboard input.
+    TabFocus,
+    /// The widget can only accept focus using mouse input.
+    ClickFocus,
+    /// The widget can accept focus using either keyboard or mouse input.
+    TabOrClick,
+    /// The widget cannot accept focus.
+    NoFocus,
+}
+
+impl Default for FocusMode {
+    #[inline]
+    fn default() -> Self {
+        FocusMode::TabOrClick
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Visibility {
+    /// The widget and it's children are visible to rendering and layout.
+    All,
+    /// The widget and it's children are visible to rendering but are ignored during layout.
+    NoLayout,
+    /// The children are not visible to rendering.
+    NoChildren,
+    /// The widget is not visible to rendering, but it's children are.
+    NoSelf,
+    /// The widget and it's children are not visually visible, but are visible during layout.
+    Invisible,
+    /// The widget and it's children are not visually visible, nor are they visible to rendering.
+    None,
+}
+
+impl Default for Visibility {
+    #[inline]
+    fn default() -> Self {
+        Visibility::All
+    }
+}
+
 /// The core, widget-agnostic object.
 /// This should be stored within widgets via `Element`.
 /// It handles the widget rectangle, parent, and other fundamental things.
@@ -507,13 +631,14 @@ pub struct Common {
     pub(crate) interaction: Interaction,
     pub(crate) layout: Option<layout::DynamicNode>,
     layout_mode: LayoutMode,
-    visible: bool,
+    visible: Visibility,
     updates: bool,
     rect: gfx::Rect,
-    parent: Option<CommonRef>,
+    parent: Option<Weak<Cell<Option<Common>>>>,
     cmds: CommandGroup,
     id: u64,
     info: Option<Box<dyn std::any::Any>>,
+    should_delete: bool,
 }
 
 impl Common {
@@ -535,13 +660,14 @@ impl Common {
             interaction: Interaction::default(),
             layout: None,
             layout_mode: Default::default(),
-            visible: true,
+            visible: Default::default(),
             updates: true,
             rect: Default::default(),
-            parent: parent.into(),
+            parent: parent.into().map(|x| Rc::downgrade(x.get_rc())),
             cmds: Default::default(),
             id: uniq::id::next(),
             info: info.into(),
+            should_delete: false,
         }
     }
 
@@ -588,7 +714,7 @@ impl Common {
 
     /// Sets the widget rectangle position from an absolute point.
     pub fn set_absolute_position(&mut self, position: gfx::Point) {
-        if let Some(parent) = self.parent.clone() {
+        if let Some(parent) = self.parent() {
             self.set_position(position - parent.with(|x| x.absolute_position()).to_vector());
         } else {
             self.set_position(position);
@@ -597,7 +723,7 @@ impl Common {
 
     /// Returns the widget rectangle position relative to the window.
     pub fn absolute_position(&self) -> gfx::Point {
-        if let Some(parent) = &self.parent {
+        if let Some(parent) = self.parent() {
             parent.with(|x| x.absolute_position()) + self.position().to_vector()
         } else {
             self.position()
@@ -614,13 +740,13 @@ impl Common {
     ///
     /// If `false`, this widget will be excluded from rendering.
     #[inline]
-    pub fn set_visible(&mut self, visible: bool) {
+    pub fn set_visible(&mut self, visible: Visibility) {
         self.visible = visible;
     }
 
     /// Returns the visibility for this widget.
     #[inline]
-    pub fn visible(&self) -> bool {
+    pub fn visible(&self) -> Visibility {
         self.visible
     }
 
@@ -643,7 +769,10 @@ impl Common {
     /// If `None` is returned then this is the root `Common`.
     #[inline]
     pub fn parent(&self) -> Option<CommonRef> {
-        self.parent.clone()
+        self.parent
+            .clone()
+            .and_then(|x| x.upgrade())
+            .map(|x| CommonRef(x))
     }
 
     /// Returns the display command group.
@@ -689,8 +818,8 @@ impl Common {
     ///
     /// Note: This does not consider `self`.
     pub fn find_parent(
-        &self,
-        mut pred: impl FnMut(&Common) -> bool,
+        &mut self,
+        mut pred: impl FnMut(&mut Common) -> bool,
         max_distance: impl Into<Option<usize>> + Copy,
     ) -> Option<CommonRef> {
         if max_distance.into().map(|x| x == 0).unwrap_or(false) {
@@ -714,6 +843,12 @@ impl Common {
         self.layout = layout.into().map(|x| layout::DynamicNode(Box::new(x)));
     }
 
+    /// Returns the widget's layout, if any.
+    #[inline]
+    pub fn layout_mut(&mut self) -> Option<&mut layout::DynamicNode> {
+        self.layout.as_mut()
+    }
+
     pub fn set_layout_mode(&mut self, mode: LayoutMode) {
         self.layout_mode = mode;
         self.update_layout_size();
@@ -722,6 +857,16 @@ impl Common {
     #[inline]
     pub fn layout_mode(&self) -> LayoutMode {
         self.layout_mode
+    }
+
+    #[inline]
+    pub fn mark_for_detach(&mut self) {
+        self.should_delete = true;
+    }
+
+    #[inline]
+    pub fn is_marked_for_detach(&self) -> bool {
+        self.should_delete
     }
 
     fn update_layout_size(&mut self) {
@@ -764,12 +909,16 @@ pub fn propagate_draw<T: 'static>(
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
 ) {
-    if widget.common().with(|c| c.visible()) {
+    let v = widget.visible();
+
+    if v != Visibility::NoSelf && v != Visibility::Invisible && v != Visibility::None {
         widget.draw(display, aux);
     }
 
-    for child in widget.children_mut() {
-        propagate_draw(child, display, aux);
+    if v != Visibility::NoChildren && v != Visibility::Invisible && v != Visibility::None {
+        for child in widget.children_mut() {
+            propagate_draw(child, display, aux);
+        }
     }
 }
 
@@ -800,15 +949,21 @@ pub trait Element: AnyElement {
 
     #[inline]
     fn draw(&mut self, _display: &mut dyn gfx::GraphicsDisplay, _aux: &mut Aux<Self::Aux>) {}
-
-    #[inline]
-    fn on_layout(&mut self, _aux: &mut Aux<Self::Aux>) {}
 }
 
 impl<E: Element + ?Sized> Id for E {
     #[inline]
     fn id(&self) -> u64 {
         self.common().with(|x| x.id())
+    }
+}
+
+pub struct StrongCommonRef(CommonRef);
+
+impl Drop for StrongCommonRef {
+    #[inline]
+    fn drop(&mut self) {
+        self.0.with(|x| x.mark_for_detach());
     }
 }
 
@@ -904,15 +1059,18 @@ pub fn draw<T: 'static, W: WidgetChildren<T>>(
     draw_fn: impl FnOnce(&mut W, &mut Aux<T>) -> Vec<gfx::DisplayCommand>,
     display: &mut dyn gfx::GraphicsDisplay,
     aux: &mut Aux<T>,
+    z_order: impl Into<Option<gfx::ZOrder>>,
 ) {
     let mut cmds = obj.common().with(|x| x.command_group().0.take().unwrap());
+
     cmds.push_with(
         display,
         || draw_fn(obj, aux),
-        Default::default(),
+        z_order.into().unwrap_or_default(),
         None,
         None,
     );
+
     obj.common().with(|x| x.command_group().0 = Some(cmds));
 }
 
@@ -932,6 +1090,14 @@ pub struct KeyModifiers {
     pub ctrl: bool,
     pub alt: bool,
     pub logo: bool,
+}
+
+pub fn propagate_visibility<T: 'static>(w: &mut dyn WidgetChildren<T>) {
+    let v = w.visible();
+    for child in w.children_mut() {
+        child.set_visible(v);
+        propagate_visibility(child);
+    }
 }
 
 /// Element convenience mixin with methods parallel to `Common`.
@@ -984,12 +1150,12 @@ pub trait ElementMixin: Element {
     }
 
     #[inline]
-    fn set_visible(&self, visible: bool) {
+    fn set_visible(&self, visible: Visibility) {
         self.common().with(|x| x.set_visible(visible))
     }
 
     #[inline]
-    fn visible(&self) -> bool {
+    fn visible(&self) -> Visibility {
         self.common().with(|x| x.visible())
     }
 
@@ -1020,24 +1186,35 @@ pub trait ElementMixin: Element {
     #[inline]
     fn find_parent(
         &self,
-        pred: impl FnMut(&Common) -> bool,
+        pred: impl FnMut(&mut Common) -> bool,
         max_distance: impl Into<Option<usize>> + Copy,
     ) -> Option<CommonRef> {
         self.common().with(|x| x.find_parent(pred, max_distance))
     }
 
-    fn set_layout<L: layout::Layout>(&mut self, layout: impl Into<Option<layout::Node<L>>>) {
+    #[inline]
+    fn set_layout<L: layout::Layout>(&self, layout: impl Into<Option<layout::Node<L>>>) {
         self.common().with(|x| x.set_layout(layout));
     }
 
     #[inline]
-    fn set_layout_mode(&mut self, mode: LayoutMode) {
+    fn set_layout_mode(&self, mode: LayoutMode) {
         self.common().with(|x| x.set_layout_mode(mode));
     }
 
     #[inline]
     fn layout_mode(&self) -> LayoutMode {
         self.common().with(|x| x.layout_mode())
+    }
+
+    #[inline]
+    fn mark_for_detach(&self) {
+        self.common().with(|x| x.mark_for_detach());
+    }
+
+    #[inline]
+    fn is_marked_for_detach(&self) -> bool {
+        self.common().with(|x| x.is_marked_for_detach())
     }
 }
 

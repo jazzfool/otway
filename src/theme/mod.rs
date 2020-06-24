@@ -100,6 +100,7 @@ pub mod painters {
 
     pub const BUTTON: &str = "button";
     pub const LABEL: &str = "label";
+    pub const TEXT_BOX: &str = "text_box";
 }
 
 pub mod colors {
