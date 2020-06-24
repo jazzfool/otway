@@ -9,62 +9,8 @@
 - **Accessibility and replaceability of "under-the-hood" components:** Nothing is "baked in". Not even input handling. If you have a custom solution to widget mouse/keyboard events, handling widget focus, etc. then all of that is easily replaceable. These systems run alongside the widget event handling and are inspired very much by the concept of "systems" in ECS.
 - **High-level abstractions:** As nice as complete control over the UI is, it can be tedious. In that regard, it is easy to write abstractions to hide the details and focus on the content. One such abstraction is already provided; `view`.
 
-## Counter Example
-
+<img src=".media/todos.png" width="40%"/><br>
 <img src=".media/counter.png" width="40%"/>
-
-```rust
-fn counter(parent: ui::CommonRef, aux: &mut Aux) -> View<AppAux, i32> {
-    let mut view = View::new(parent, aux, 0);
-
-    let mut vstack = layout::VStack::new().into_node(None);
-    let mut hstack = layout::HStack::new().into_node(None);
-
-    let label = view
-        .label(aux)
-        .layout(&mut vstack, None)
-        .size(42.0)
-        .into_inner();
-
-    view.button(aux)
-        .text("Increment")
-        .layout(&mut hstack, None)
-        .press(|view, aux, _| {
-            view.set_state(|x| *x += 1);
-        });
-
-    view.button(aux)
-        .text("Decrement")
-        .layout(&mut hstack, None)
-        .press(|view, aux, _| {
-            view.set_state(|x| *x -= 1);
-        });
-
-    vstack.push(hstack, None);
-    view.set_layout(vstack);
-
-    view.state_changed(move |view| {
-        let count = *view.state();
-        view.get_mut(label)
-            .unwrap()
-            .set_text(format!("Count is up to {}", count));
-        layout::update_layout(view);
-    });
-
-    view.set_state(|_| {});
-    view
-}
-```
-
-The `.button`/`.label` syntax are simply convenience extensions (which can be written for any custom widget). The general, widget-agnostic syntax is like so;
-
-```rust
-// A button that is deleted when clicked.
-let btn = view.child(Button::new, aux);
-view.on(btn, move |view, aux, event: &PressEvent| {
-    view.remove(btn);
-});
-```
 
 ## License
 
