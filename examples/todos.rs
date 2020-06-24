@@ -121,15 +121,17 @@ impl<T: 'static> TodoItemList<T> {
             .unwrap()
             .set_placeholder("I want to...".to_string());
 
+        view.handle(tb, move |view, aux, ev: &kit::KeyPressEvent| {
+            if ev.0 == ui::KeyInput::Return {
+                TodoItemList::submit_item(view, aux, tb);
+            }
+        });
+
         view.button(aux)
             .text("Add item")
             .layout(&mut vstack, Some((0.0, 5.0).into()))
             .press(move |view, aux, _| {
-                let text = view.get(tb).unwrap().text().to_string();
-                if !text.is_empty() {
-                    TodoItemList::add_item(view, aux, text);
-                    view.get_mut(tb).unwrap().set_text("");
-                }
+                TodoItemList::submit_item(view, aux, tb);
             });
 
         view.button(aux)
@@ -224,6 +226,18 @@ impl<T: 'static> TodoItemList<T> {
             ui::propagate_visibility(view.get_mut(item).unwrap());
         }
         layout::update_layout(view);
+    }
+
+    fn submit_item(
+        view: &mut View<T, TodoItemList<T>>,
+        aux: &mut ui::Aux<T>,
+        tb: ChildRef<kit::TextBox<T>>,
+    ) {
+        let text = view.get(tb).unwrap().text().to_string();
+        if !text.is_empty() {
+            TodoItemList::add_item(view, aux, text);
+            view.get_mut(tb).unwrap().set_text("");
+        }
     }
 }
 
