@@ -28,15 +28,19 @@ pub trait TypedPainter<T: 'static>: AnyPainter<T> {
 
     fn paint(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand>;
     fn size_hint(&mut self, obj: &mut Self::Object) -> gfx::Size;
+    fn metrics(&self, _obj: &Self::Object, _metric: &'static str) -> Option<f32> {
+        None
+    }
 }
 
-pub trait AnyPainter<T: 'static> {
+pub trait AnyPainter<T: 'static>: as_any::AsAny {
     fn paint(
         &mut self,
         obj: &mut dyn std::any::Any,
         aux: &mut ui::Aux<T>,
     ) -> Vec<gfx::DisplayCommand>;
     fn size_hint(&mut self, obj: &mut dyn std::any::Any) -> gfx::Size;
+    fn metrics(&self, obj: &dyn std::any::Any, metrics: &'static str) -> Option<f32>;
 }
 
 impl<T: 'static, P: TypedPainter<T>> AnyPainter<T> for P {
@@ -53,7 +57,14 @@ impl<T: 'static, P: TypedPainter<T>> AnyPainter<T> for P {
     fn size_hint(&mut self, obj: &mut dyn std::any::Any) -> gfx::Size {
         TypedPainter::size_hint(self, obj.downcast_mut::<P::Object>().unwrap())
     }
+
+    #[inline]
+    fn metrics(&self, obj: &dyn std::any::Any, metric: &'static str) -> Option<f32> {
+        TypedPainter::metrics(self, obj.downcast_ref::<P::Object>().unwrap(), metric)
+    }
 }
+
+impl<T: 'static> as_any::Downcast for dyn AnyPainter<T> {}
 
 #[cfg(feature = "kit")]
 pub struct Standards {
@@ -94,6 +105,31 @@ pub fn size_hint<O: 'static, T: 'static>(
     out
 }
 
+pub fn metrics<O: 'static, T: 'static>(
+    obj: &mut O,
+    metric: &'static str,
+    p: impl Fn(&mut O) -> &mut Painter<O, T>,
+) -> Option<f32> {
+    let painter = p(obj).0.take().unwrap();
+    let out = AnyPainter::metrics(&*painter, obj, metric);
+    p(obj).0 = Some(painter);
+    out
+}
+
+pub fn multi_metrics<O: 'static, T: 'static>(
+    obj: &mut O,
+    metric: &[&'static str],
+    p: impl Fn(&mut O) -> &mut Painter<O, T>,
+) -> Vec<Option<f32>> {
+    let painter = p(obj).0.take().unwrap();
+    let mut out = Vec::new();
+    for m in metric {
+        out.push(AnyPainter::metrics(&*painter, obj, m));
+    }
+    p(obj).0 = Some(painter);
+    out
+}
+
 pub mod painters {
     //! Standard painter definitions used by `kit`.
     //! For a theme to support `kit`, it must implement all of these.
@@ -101,6 +137,16 @@ pub mod painters {
     pub const BUTTON: &str = "button";
     pub const LABEL: &str = "label";
     pub const TEXT_BOX: &str = "text_box";
+    pub const CHECK_MARK_BOX: &str = "check_mark_box";
+}
+
+pub mod metrics {
+    //! Standard visual metrics definitions used by `kit`.
+    //! For a theme to support `kit`, it must implement all of these.
+
+    pub const BUTTON_PADDING_X: &str = "padding_x";
+    pub const BUTTON_PADDING_Y: &str = "padding_y";
+    pub const CHECK_MARK_SPACING: &str = "spacing";
 }
 
 pub mod colors {
@@ -113,8 +159,10 @@ pub mod colors {
     pub const BACKGROUND: &str = "background";
     /// A less contrasting version of the foreground.
     pub const WEAK_FOREGROUND: &str = "weak_foreground";
-    /// A less contrasting version of the background.
-    pub const STRONG_FOREGROUND: &str = "strong_foreground";
     /// A background element in the foreground. For example, the color of a button.
     pub const STRONG_BACKGROUND: &str = "strong_background";
+    /// Color used by text-based controls (text boxes, combo-boxes, etc).
+    pub const TEXT_CONTROL: &str = "text_control";
+    /// An element that is "activated".
+    pub const ACTIVE: &str = "active";
 }

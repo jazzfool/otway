@@ -232,6 +232,15 @@ impl DynamicNode {
     }
 }
 
+pub fn update_direct_layout(common: &ui::CommonRef) {
+    common.with(|x| {
+        if let Some(DynamicNode(layout)) = &mut x.layout {
+            layout.process_detachments();
+            layout.update();
+        }
+    });
+}
+
 pub fn update_layout<T: 'static>(widget: &dyn WidgetChildren<T>) {
     resize_layout(widget);
     update_layout_impl(widget);

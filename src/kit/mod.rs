@@ -4,10 +4,11 @@ use {
 };
 
 pub mod button;
+pub mod check_box;
 pub mod label;
 pub mod text_box;
 
-pub use {button::*, label::*, text_box::*};
+pub use {button::*, check_box::*, label::*, text_box::*};
 
 /// The widget was pressed.
 #[repr(transparent)]

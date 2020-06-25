@@ -59,7 +59,15 @@ impl<T: 'static> Button<T> {
 
     fn update_label(&mut self) {
         let label_bounds = self.label.bounds();
-        let padding = theme::size_hint(self, |x| &mut x.painter);
+        let padding = theme::multi_metrics(
+            self,
+            &[
+                theme::metrics::BUTTON_PADDING_X,
+                theme::metrics::BUTTON_PADDING_Y,
+            ],
+            |x| &mut x.painter,
+        );
+        let padding = gfx::Size::new(padding[0].unwrap(), padding[1].unwrap());
         self.set_size(label_bounds.size + padding);
         let bounds = self.rect();
         let y = ui::layout::align_y(label_bounds, bounds, ui::layout::Alignment::Middle, 0.) - 1.;

@@ -202,3 +202,96 @@ impl<T: 'static, S: 'static> Element for View<T, S> {
         dispatch(self, aux, |x| &mut x.listener);
     }
 }
+
+pub trait ViewPart<T: 'static>: 'static {
+    fn children(&self) -> Vec<&dyn WidgetChildren<T>>;
+    fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>>;
+}
+
+/// Same as `View`, however children are stored in the state type (`S`) via `ViewPart`.
+pub struct PartialView<T: 'static, S: ViewPart<T>> {
+    state: S,
+    state_changed: Option<Vec<StateChangedCallback<Self>>>,
+    common: CommonRef,
+    listener: Listener<Self, Aux<T>>,
+}
+
+impl<T: 'static, S: ViewPart<T>> PartialView<T, S> {
+    /// Creates a new `PartialView`.
+    pub fn new(parent: CommonRef, aux: &mut Aux<T>, state: impl FnOnce(&CommonRef) -> S) -> Self {
+        let common = CommonRef::new(parent);
+        PartialView {
+            state: state(&common),
+            state_changed: Default::default(),
+            common,
+            listener: aux.listen(),
+        }
+    }
+
+    /// Returns an immutable reference to the inner listener.
+    #[inline]
+    pub fn listener(&self) -> &Listener<Self, Aux<T>> {
+        &self.listener
+    }
+
+    /// Returns a mutable reference to the inner listener.
+    #[inline]
+    pub fn listener_mut(&mut self) -> &mut Listener<Self, Aux<T>> {
+        &mut self.listener
+    }
+
+    /// Return an immutable reference to the state.
+    ///
+    /// To mutate the state, use `set_state`.
+    #[inline]
+    pub fn state(&self) -> &S {
+        &self.state
+    }
+
+    /// Mutates the state through a closure.
+    /// Any value returned from the closure is returned by this function.
+    /// This will trigger `state_changed` callbacks.
+    pub fn set_state<R>(&mut self, set: impl FnOnce(&mut S) -> R) -> R {
+        let r = set(&mut self.state);
+        let mut handlers = self.state_changed.take().unwrap();
+        for handler in &mut handlers {
+            (*handler)(self);
+        }
+        self.state_changed = Some(handlers);
+        r
+    }
+
+    /// Adds a callback for state changes.
+    ///
+    /// This is unrelated to the event queue system.
+    #[inline]
+    pub fn state_changed(&mut self, handler: impl Fn(&mut Self) + 'static) {
+        self.state_changed.as_mut().unwrap().push(Box::new(handler));
+    }
+}
+
+impl<T: 'static, S: ViewPart<T>> WidgetChildren<T> for PartialView<T, S> {
+    #[inline]
+    fn children(&self) -> Vec<&dyn WidgetChildren<T>> {
+        self.state.children()
+    }
+
+    #[inline]
+    fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>> {
+        self.state.children_mut()
+    }
+}
+
+impl<T: 'static, S: ViewPart<T>> Element for PartialView<T, S> {
+    type Aux = T;
+
+    #[inline]
+    fn common(&self) -> &CommonRef {
+        &self.common
+    }
+
+    fn update(&mut self, aux: &mut Aux<Self::Aux>) {
+        propagate_repaint(self);
+        dispatch(self, aux, |x| &mut x.listener);
+    }
+}
