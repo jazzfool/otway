@@ -30,17 +30,26 @@ impl<T: 'static> CheckMarkBox<T> {
             None,
         );
 
+        let focus_listener = kit::focus_handler(
+            aux,
+            kit::focus_forwarder(),
+            kit::FocusConfig {
+                interaction_handler: common.with(|x| x.id()),
+                mouse_trigger: Default::default(),
+            },
+        );
+
         let mut cm = CheckMarkBox {
             checked: false,
 
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::CHECK_MARK_BOX),
             common,
-            listeners: ui::ListenerList::new(vec![interaction_listener]),
+            listeners: ui::ListenerList::new(vec![interaction_listener, focus_listener]),
         };
 
         let size = theme::size_hint(&mut cm, |x| &mut x.painter);
         ElementMixin::set_size(&cm, size);
-        
+
         cm
     }
 

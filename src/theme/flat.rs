@@ -89,7 +89,7 @@ impl<T: 'static> Theme<T> for FlatTheme {
                 last_cur: std::usize::MAX,
             }),
             painters::CHECK_MARK_BOX => Box::new(CheckMarkBoxPainter {
-                theme: Rc::clone(&self.0),
+                _theme: Rc::clone(&self.0),
             }),
             _ => unimplemented!(),
         }
@@ -300,7 +300,7 @@ fn check_mark(r: gfx::Rect) -> gfx::VectorPath {
 }
 
 struct CheckMarkBoxPainter {
-    theme: Rc<Inner>,
+    _theme: Rc<Inner>,
 }
 
 impl<T: 'static> TypedPainter<T> for CheckMarkBoxPainter {
