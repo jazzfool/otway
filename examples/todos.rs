@@ -12,10 +12,8 @@ use otway::{
 struct TodoItemCompletionEvent(bool);
 
 struct TodoItem<T: 'static> {
-    completed: bool,
-
     label: ChildRef<kit::Label<T>>,
-    btn: ChildRef<kit::Button<T>>,
+    check: ChildRef<kit::CheckMarkBox<T>>,
 }
 
 impl<T: 'static> TodoItem<T> {
@@ -24,22 +22,20 @@ impl<T: 'static> TodoItem<T> {
             parent,
             aux,
             TodoItem {
-                completed: false,
                 label: ChildRef::null(),
-                btn: ChildRef::null(),
+                check: ChildRef::null(),
             },
         );
 
         let mut hstack = layout::HStack::new().into_node(None);
 
-        let btn = view
-            .button(aux)
-            .layout(&mut hstack, None)
-            .press(|view, aux, _| {
-                view.set_state(|x| x.completed = !x.completed);
-                view.emit(aux, TodoItemCompletionEvent(view.state().completed));
-            })
-            .into_inner();
+        let check = view.child(kit::CheckMarkBox::new, aux);
+
+        hstack.push(view.get(check).unwrap(), None);
+
+        view.handle(check, |view, aux, kit::CheckMarkToggledEvent(ev)| {
+            view.emit(aux, TodoItemCompletionEvent(*ev));
+        });
 
         let label = view
             .label(aux)
@@ -49,17 +45,9 @@ impl<T: 'static> TodoItem<T> {
         view.set_layout(hstack);
         view.set_layout_mode(ui::LayoutMode::Shrink);
 
-        view.state_changed(|view| {
-            let (btn, completed) = (view.state().btn, view.state().completed);
-            view.get_mut(btn)
-                .unwrap()
-                .set_text(if completed { "[X]" } else { "[-]" });
-            layout::update_layout(view);
-        });
-
         view.set_state(move |x| {
             x.label = label;
-            x.btn = btn;
+            x.check = check;
         });
 
         view
@@ -71,8 +59,9 @@ impl<T: 'static> TodoItem<T> {
     }
 
     #[inline]
-    pub fn is_complete(&self) -> bool {
-        self.completed
+    pub fn is_complete(view: &View<T, Self>) -> bool {
+        let check = view.state().check;
+        view.get(check).unwrap().checked()
     }
 }
 
@@ -137,18 +126,18 @@ impl<T: 'static> TodoItemList<T> {
         view.button(aux)
             .text("Clear items")
             .layout(&mut vstack, Some((0.0, 5.0).into()))
-            .press(|view, _, _| TodoItemList::clear_items(view));
+            .press(|view, aux, _| TodoItemList::clear_items(view, aux));
 
         view.button(aux)
             .text("Next filter")
             .layout(&mut vstack, Some((0.0, 5.0).into()))
-            .press(|view, _, _| {
+            .press(|view, aux, _| {
                 view.set_state(|x| match x.filter {
                     ItemFilter::All => x.filter = ItemFilter::Completed,
                     ItemFilter::Completed => x.filter = ItemFilter::Incomplete,
                     ItemFilter::Incomplete => x.filter = ItemFilter::All,
                 });
-                Self::filter_items(view);
+                Self::filter_items(view, aux);
             });
 
         let filter_label = view
@@ -187,24 +176,26 @@ impl<T: 'static> TodoItemList<T> {
                 .push(item_c, Some((0.0, 5.0).into()));
         });
 
-        view.late_handle(item, |view, _, _: &TodoItemCompletionEvent| {
-            Self::filter_items(view)
+        view.late_handle(item, |view, aux, _: &TodoItemCompletionEvent| {
+            Self::filter_items(view, aux)
         });
 
         view.set_state(move |state| state.items.push(item));
-        Self::filter_items(view);
+        Self::filter_items(view, aux);
     }
 
-    pub fn clear_items(view: &mut View<T, TodoItemList<T>>) {
+    pub fn clear_items(view: &mut View<T, TodoItemList<T>>, aux: &mut ui::Aux<T>) {
         for item in view.state().items.clone() {
+            view.get(item).unwrap().set_visible(ui::Visibility::None);
             view.get(item).unwrap().mark_for_detach();
             view.remove(item);
         }
         view.set_state(|x| x.items.clear());
         layout::update_layout(view);
+        layout::update_direct_layout(&aux.central_widget);
     }
 
-    fn filter_items(view: &mut View<T, TodoItemList<T>>) {
+    fn filter_items(view: &mut View<T, TodoItemList<T>>, aux: &mut ui::Aux<T>) {
         let filter = view.state().filter;
         for item in view.state().items.clone() {
             if filter == ItemFilter::All {
@@ -213,7 +204,7 @@ impl<T: 'static> TodoItemList<T> {
                 continue;
             }
 
-            let completed = view.get(item).unwrap().state().is_complete();
+            let completed = TodoItem::is_complete(view.get(item).unwrap());
             if (completed && filter == ItemFilter::Completed)
                 || (!completed && filter == ItemFilter::Incomplete)
             {
@@ -226,6 +217,7 @@ impl<T: 'static> TodoItemList<T> {
             ui::propagate_visibility(view.get_mut(item).unwrap());
         }
         layout::update_layout(view);
+        layout::update_direct_layout(&aux.central_widget);
     }
 
     fn submit_item(
@@ -237,6 +229,7 @@ impl<T: 'static> TodoItemList<T> {
         if !text.is_empty() {
             TodoItemList::add_item(view, aux, text);
             view.get_mut(tb).unwrap().set_text("");
+            layout::update_direct_layout(&aux.central_widget);
         }
     }
 }

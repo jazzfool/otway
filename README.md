@@ -9,8 +9,8 @@
 - **Accessibility and replaceability of "under-the-hood" components:** Nothing is "baked in". Not even input handling. If you have a custom solution to widget mouse/keyboard events, handling widget focus, etc. then all of that is easily replaceable. These systems run alongside the widget event handling and are inspired very much by the concept of "systems" in ECS.
 - **High-level abstractions:** As nice as complete control over the UI is, it can be tedious. In that regard, it is easy to write abstractions to hide the details and focus on the content. One such abstraction is already provided; `view`.
 
-<img src=".media/todos.png" width="40%"/><br>
-<img src=".media/counter.png" width="40%"/>
+<img src=".media/todos.png" height="300em"/>
+<img src=".media/counter.png" height="300em"/>
 
 ## License
 

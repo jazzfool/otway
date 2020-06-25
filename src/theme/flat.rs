@@ -4,6 +4,11 @@ use {
     std::rc::Rc,
 };
 
+#[inline]
+fn rgba(r: u8, g: u8, b: u8, a: f32) -> gfx::Color {
+    gfx::Color::new(r as f32 / 255., g as f32 / 255., b as f32 / 255., a)
+}
+
 const CORNER_RADIUS: f32 = 5.0;
 const CORNER_RADII: [f32; 4] = [CORNER_RADIUS, CORNER_RADIUS, CORNER_RADIUS, CORNER_RADIUS];
 
@@ -83,17 +88,21 @@ impl<T: 'static> Theme<T> for FlatTheme {
                 count: 0,
                 last_cur: std::usize::MAX,
             }),
+            painters::CHECK_MARK_BOX => Box::new(CheckMarkBoxPainter {
+                theme: Rc::clone(&self.0),
+            }),
             _ => unimplemented!(),
         }
     }
 
     fn color(&self, c: &'static str) -> gfx::Color {
         match c {
-            colors::FOREGROUND => gfx::Color::new(0.8, 0.8, 0.8, 0.8),
-            colors::BACKGROUND => gfx::Color::new(0.0, 0.0, 0.0, 1.0),
-            colors::WEAK_FOREGROUND => gfx::Color::new(0.5, 0.5, 0.5, 1.0),
-            colors::STRONG_FOREGROUND => gfx::Color::new(1.0, 1.0, 1.0, 1.0),
-            colors::STRONG_BACKGROUND => gfx::Color::new(0.2, 0.2, 0.2, 1.0),
+            colors::FOREGROUND => rgba(180, 180, 180, 1.0),
+            colors::BACKGROUND => rgba(38, 38, 38, 1.0),
+            colors::WEAK_FOREGROUND => rgba(109, 109, 109, 1.0),
+            colors::STRONG_BACKGROUND => rgba(58, 58, 58, 1.0),
+            colors::TEXT_CONTROL => rgba(26, 26, 26, 1.0),
+            colors::ACTIVE => rgba(25, 78, 197, 1.0),
             _ => unimplemented!(),
         }
     }
@@ -134,7 +143,15 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
 
     #[inline]
     fn size_hint(&mut self, _obj: &mut kit::Button<T>) -> gfx::Size {
-        gfx::Size::new(20.0, 6.0)
+        Default::default()
+    }
+
+    fn metrics(&self, _obj: &kit::Button<T>, metric: &'static str) -> Option<f32> {
+        match metric {
+            metrics::BUTTON_PADDING_X => Some(30.),
+            metrics::BUTTON_PADDING_Y => Some(3.0),
+            _ => None,
+        }
     }
 }
 
@@ -258,7 +275,7 @@ impl<T: 'static> TypedPainter<T> for TextBoxPainter {
             gfx::Point::new(pos.x + cur.width, pos.y + cur.height),
             gfx::GraphicsDisplayStroke {
                 thickness: 1.,
-                color: aux.theme.color(colors::STRONG_FOREGROUND).into(),
+                color: aux.theme.color(colors::FOREGROUND).into(),
                 ..Default::default()
             },
             None,
@@ -269,5 +286,73 @@ impl<T: 'static> TypedPainter<T> for TextBoxPainter {
 
     fn size_hint(&mut self, _obj: &mut kit::TextBox<T>) -> gfx::Size {
         Default::default()
+    }
+}
+
+fn check_mark(r: gfx::Rect) -> gfx::VectorPath {
+    let mut path = gfx::VectorPathBuilder::new();
+
+    path.move_to(r.origin + gfx::Size::new(r.size.width, 0.));
+    path.line_to(r.origin + gfx::Size::new(r.size.width / 2., r.size.height));
+    path.line_to(r.origin + gfx::Size::new(0., r.size.height / 2.));
+
+    path.build()
+}
+
+struct CheckMarkBoxPainter {
+    theme: Rc<Inner>,
+}
+
+impl<T: 'static> TypedPainter<T> for CheckMarkBoxPainter {
+    type Object = kit::CheckMarkBox<T>;
+
+    fn paint(
+        &mut self,
+        obj: &mut kit::CheckMarkBox<T>,
+        aux: &mut ui::Aux<T>,
+    ) -> Vec<gfx::DisplayCommand> {
+        let mut out = gfx::DisplayListBuilder::new();
+
+        let color = aux.theme.color(if obj.checked() {
+            colors::ACTIVE
+        } else {
+            colors::STRONG_BACKGROUND
+        });
+
+        let bounds = obj.bounds();
+
+        out.push_round_rectangle(
+            bounds,
+            CORNER_RADII,
+            gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(color)),
+            None,
+        );
+
+        if obj.checked() {
+            out.push_path(
+                check_mark(bounds.inflate(-4., -4.)),
+                false,
+                gfx::GraphicsDisplayPaint::Stroke(gfx::GraphicsDisplayStroke {
+                    thickness: 2.,
+                    color: aux.theme.color(colors::FOREGROUND).into(),
+                    ..Default::default()
+                }),
+                None,
+            )
+        }
+
+        out.build()
+    }
+
+    #[inline]
+    fn size_hint(&mut self, _obj: &mut kit::CheckMarkBox<T>) -> gfx::Size {
+        gfx::Size::new(20., 20.)
+    }
+
+    fn metrics(&self, _obj: &kit::CheckMarkBox<T>, metric: &'static str) -> Option<f32> {
+        match metric {
+            metrics::CHECK_MARK_SPACING => Some(5.0),
+            _ => None,
+        }
     }
 }
