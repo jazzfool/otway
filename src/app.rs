@@ -73,7 +73,6 @@ pub struct AppData<T> {
 pub struct AppOptions {
     pub window_title: String,
     pub window_size: gfx::Size,
-    pub background: gfx::Color,
 }
 
 impl Default for AppOptions {
@@ -81,7 +80,6 @@ impl Default for AppOptions {
         AppOptions {
             window_title: "Otway UI".into(),
             window_size: gfx::Size::new(960.0, 540.0),
-            background: gfx::Color::new(1.0, 1.0, 1.0, 1.0),
         }
     }
 }
@@ -146,6 +144,8 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
     });
     ui::layout::update_layout(&root);
 
+    let bg_color = aux.theme.color(theme::colors::BACKGROUND);
+
     el.run(move |event, _window, control_flow| {
         *control_flow = glutin::event_loop::ControlFlow::WaitUntil(
             std::time::Instant::now() + std::time::Duration::from_millis(16),
@@ -170,7 +170,7 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
                     &mut display,
                     &[
                         gfx::DisplayCommand::Save,
-                        gfx::DisplayCommand::Clear(options.background),
+                        gfx::DisplayCommand::Clear(bg_color),
                         gfx::DisplayCommand::Scale(gfx::Vector::new(
                             scale_factor as _,
                             scale_factor as _,
