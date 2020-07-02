@@ -29,7 +29,7 @@ As an example, we can attach the provided mouse interaction component to any wid
 ```rust
 let mut some_widget = SomeWidget::new(parent, aux);
 
-some_widget.push_component::<SomeWidget, _, _>(
+some_widget.push_component(
     InteractionComponent::new(
         aux,
         |some_widget, _, ev| {
