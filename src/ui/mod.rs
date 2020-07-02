@@ -1391,38 +1391,37 @@ pub trait ElementMixin: Element {
     }
 
     #[inline]
-    fn push_component<
-        O: WidgetChildren<T>,
-        C: Component<Object = O, Type = T> + DispatchableComponent,
-        T: 'static,
-    >(
+    fn push_component<C: Component<Object = Self, Type = T> + DispatchableComponent, T: 'static>(
         &mut self,
         c: C,
-    ) {
-        self.common().with(|x| x.push_component::<O, C, T>(c));
+    ) where
+        Self: WidgetChildren<T> + Sized,
+    {
+        self.common().with(|x| x.push_component::<Self, C, T>(c));
     }
 
     #[inline]
-    fn with_component<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static, R>(
+    fn with_component<C: Component<Object = Self, Type = T>, T: 'static, R>(
         &self,
         f: impl FnOnce(&C) -> R,
-    ) -> Option<R> {
+    ) -> Option<R>
+    where
+        Self: WidgetChildren<T> + Sized,
+    {
         self.common()
-            .with(|x| x.component::<C, O, T>().map(|x| f(x)))
+            .with(|x| x.component::<C, Self, T>().map(|x| f(x)))
     }
 
     #[inline]
-    fn with_component_mut<
-        C: Component<Object = O, Type = T>,
-        O: WidgetChildren<T>,
-        T: 'static,
-        R,
-    >(
+    fn with_component_mut<C: Component<Object = Self, Type = T>, T: 'static, R>(
         &self,
         f: impl FnOnce(&mut C) -> R,
-    ) -> Option<R> {
+    ) -> Option<R>
+    where
+        Self: WidgetChildren<T> + Sized,
+    {
         self.common()
-            .with(|x| x.component_mut::<C, O, T>().map(|x| f(x)))
+            .with(|x| x.component_mut::<C, Self, T>().map(|x| f(x)))
     }
 }
 
