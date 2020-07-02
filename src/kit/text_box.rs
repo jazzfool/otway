@@ -20,15 +20,21 @@ pub struct TextBox<T: 'static> {
 
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<Self, ui::Aux<T>>,
+    listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
 }
 
 impl<T: 'static> TextBox<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
 
-        let interaction_listener =
-            kit::interaction_handler(aux, kit::interaction_forwarder(None), None, None);
+        common.with(|x| {
+            x.push_component::<Self, _, _>(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            ));
+        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -77,16 +83,12 @@ impl<T: 'static> TextBox<T> {
 
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::TEXT_BOX),
             common,
-            listeners: ui::ListenerList::new(vec![
-                interaction_listener,
-                focus_listener,
-                keyboard_listener,
-            ]),
+            listeners: ui::ListenerList::new(vec![focus_listener, keyboard_listener]),
         }
     }
 
-    pub fn set_text(&mut self, text: impl Into<String>) {
-        self.text = text.into();
+    pub fn set_text(&mut self, text: impl ToString) {
+        self.text = text.to_string();
         self.cursor = self.cursor.min(self.text.len());
         self.update_label();
     }
@@ -96,8 +98,8 @@ impl<T: 'static> TextBox<T> {
         &self.text
     }
 
-    pub fn set_placeholder(&mut self, placeholder: impl Into<String>) {
-        self.placeholder = placeholder.into();
+    pub fn set_placeholder(&mut self, placeholder: impl ToString) {
+        self.placeholder = placeholder.to_string();
         self.update_label();
     }
 
@@ -206,8 +208,11 @@ impl<T: 'static> ui::Element for TextBox<T> {
                 theme::colors::FOREGROUND
             }));
 
+        ui::dispatch_list::<(ui::Write<Self>, ui::Write<ui::Aux<T>>), _>((self, aux), |(x, _)| {
+            &mut x.listeners
+        });
+
         ui::propagate_repaint(self);
-        ui::dispatch_list(self, aux, |x| &mut x.listeners);
     }
 
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<T>) {

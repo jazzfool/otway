@@ -9,8 +9,16 @@ fn rgba(r: u8, g: u8, b: u8, a: f32) -> gfx::Color {
     gfx::Color::new(r as f32 / 255., g as f32 / 255., b as f32 / 255., a)
 }
 
-const CORNER_RADIUS: f32 = 5.0;
+fn with_alpha(mut c: gfx::Color, a: f32) -> gfx::Color {
+    c.alpha = a;
+    c
+}
+
+const CORNER_RADIUS: f32 = 5.;
 const CORNER_RADII: [f32; 4] = [CORNER_RADIUS, CORNER_RADIUS, CORNER_RADIUS, CORNER_RADIUS];
+
+const BLUR_RADIUS: f32 = 20.;
+const TRANSLUCENCY: f32 = 0.8;
 
 pub type FontRef = (gfx::ResourceReference, gfx::FontInfo);
 
@@ -91,6 +99,15 @@ impl<T: 'static> Theme<T> for FlatTheme {
             painters::CHECK_MARK_BOX => Box::new(CheckMarkBoxPainter {
                 _theme: Rc::clone(&self.0),
             }),
+            painters::COMBO_BOX => Box::new(ComboBoxPainter {
+                _theme: Rc::clone(&self.0),
+            }),
+            painters::COMBO_LIST => Box::new(ComboListPainter {
+                _theme: Rc::clone(&self.0),
+            }),
+            painters::COMBO_LIST_ITEM => Box::new(ComboListItemPainter {
+                _theme: Rc::clone(&self.0),
+            }),
             _ => unimplemented!(),
         }
     }
@@ -148,8 +165,8 @@ impl<T: 'static> TypedPainter<T> for ButtonPainter {
 
     fn metrics(&self, _obj: &kit::Button<T>, metric: &'static str) -> Option<f32> {
         match metric {
-            metrics::BUTTON_PADDING_X => Some(30.),
-            metrics::BUTTON_PADDING_Y => Some(3.0),
+            metrics::PADDING_X => Some(30.),
+            metrics::PADDING_Y => Some(3.),
             _ => None,
         }
     }
@@ -354,5 +371,153 @@ impl<T: 'static> TypedPainter<T> for CheckMarkBoxPainter {
             metrics::CHECK_MARK_SPACING => Some(5.0),
             _ => None,
         }
+    }
+}
+
+fn up_down_arrows(rect: gfx::Rect) -> [gfx::VectorPath; 2] {
+    let c = rect.center();
+    let v = if rect.size.width > rect.size.height {
+        rect.size.height
+    } else {
+        rect.size.width
+    } / 3.;
+    let d = v / 2.;
+
+    let mut path1 = gfx::VectorPathBuilder::new();
+    path1.move_to(c + gfx::Vector::new(-v, -v + d));
+    path1.line_to(c + gfx::Vector::new(0., 2. * -v + d));
+    path1.line_to(c + gfx::Vector::new(v, -v + d));
+
+    let mut path2 = gfx::VectorPathBuilder::new();
+    path2.move_to(c + gfx::Vector::new(-v, v - d));
+    path2.line_to(c + gfx::Vector::new(0., 2. * v - d));
+    path2.line_to(c + gfx::Vector::new(v, v - d));
+
+    [path1.build(), path2.build()]
+}
+
+struct ComboBoxPainter {
+    _theme: Rc<Inner>,
+}
+
+impl<T: 'static> TypedPainter<T> for ComboBoxPainter {
+    type Object = kit::ComboBox<T>;
+
+    fn paint(
+        &mut self,
+        obj: &mut kit::ComboBox<T>,
+        aux: &mut ui::Aux<T>,
+    ) -> Vec<gfx::DisplayCommand> {
+        let mut out = gfx::DisplayListBuilder::new();
+
+        let bounds = obj.bounds();
+
+        out.save();
+        out.push_round_rectangle_clip(bounds, CORNER_RADII);
+
+        out.push_rectangle(
+            bounds,
+            gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(
+                aux.theme.color(colors::TEXT_CONTROL),
+            )),
+            None,
+        );
+
+        let mut icon_bg = bounds;
+        icon_bg.size.width = 15.;
+        icon_bg.origin.x = ui::layout::align_x(icon_bg, bounds, ui::layout::Alignment::End, 0.);
+
+        out.push_rectangle(
+            icon_bg,
+            gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(
+                aux.theme.color(colors::ACTIVE),
+            )),
+            None,
+        );
+
+        for v in up_down_arrows(icon_bg.inflate(-1., -1.))
+            .to_vec()
+            .into_iter()
+        {
+            out.push_path(
+                v,
+                false,
+                gfx::GraphicsDisplayPaint::Stroke(gfx::GraphicsDisplayStroke {
+                    thickness: 2.,
+                    color: aux.theme.color(colors::FOREGROUND).into(),
+                    ..Default::default()
+                }),
+                None,
+            );
+        }
+
+        out.restore();
+
+        out.build()
+    }
+
+    #[inline]
+    fn size_hint(&mut self, _obj: &mut kit::ComboBox<T>) -> gfx::Size {
+        Default::default()
+    }
+
+    fn metrics(&self, _obj: &Self::Object, metric: &'static str) -> Option<f32> {
+        match metric {
+            metrics::PADDING_X => Some(30.),
+            metrics::PADDING_Y => Some(3.),
+            _ => None,
+        }
+    }
+}
+
+struct ComboListPainter {
+    _theme: Rc<Inner>,
+}
+
+impl<T: 'static> TypedPainter<T> for ComboListPainter {
+    type Object = kit::ComboList<T>;
+
+    fn paint(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
+        let mut out = gfx::DisplayListBuilder::new();
+
+        let bounds = obj.bounds();
+
+        out.push_round_rectangle_backdrop(
+            bounds,
+            CORNER_RADII,
+            gfx::Filter::Blur(BLUR_RADIUS, BLUR_RADIUS),
+        );
+
+        out.push_round_rectangle(
+            bounds,
+            CORNER_RADII,
+            gfx::GraphicsDisplayPaint::Fill(gfx::StyleColor::Color(with_alpha(
+                aux.theme.color(colors::TEXT_CONTROL),
+                TRANSLUCENCY,
+            ))),
+            None,
+        );
+
+        out.build()
+    }
+
+    fn size_hint(&mut self, obj: &mut Self::Object) -> gfx::Size {
+        Default::default()
+    }
+}
+
+struct ComboListItemPainter {
+    _theme: Rc<Inner>,
+}
+
+impl<T: 'static> TypedPainter<T> for ComboListItemPainter {
+    type Object = kit::ComboListItem<T>;
+
+    fn paint(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
+        Default::default()
+    }
+
+    fn size_hint(&mut self, obj: &mut Self::Object) -> gfx::Size {
+        Default::default()
     }
 }

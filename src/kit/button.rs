@@ -10,15 +10,22 @@ pub struct Button<T: 'static> {
 
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<Self, ui::Aux<T>>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self, T>>,
 }
 
 impl<T: 'static> Button<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
 
-        let interaction_listener =
-            kit::interaction_handler(aux, kit::interaction_forwarder(None), None, None);
+        common.with(|x| {
+            x.push_component::<Self, _, _>(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            ));
+        });
+
         let focus_listener = kit::focus_handler(
             aux,
             kit::focus_forwarder(),
@@ -33,7 +40,7 @@ impl<T: 'static> Button<T> {
             alignment: aux.theme.standards().button_text_alignment,
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
             common,
-            listeners: ui::ListenerList::new(vec![interaction_listener, focus_listener]),
+            listeners: ui::ListenerList::new(vec![focus_listener]),
         }
     }
 
@@ -61,10 +68,7 @@ impl<T: 'static> Button<T> {
         let label_bounds = self.label.bounds();
         let padding = theme::multi_metrics(
             self,
-            &[
-                theme::metrics::BUTTON_PADDING_X,
-                theme::metrics::BUTTON_PADDING_Y,
-            ],
+            &[theme::metrics::PADDING_X, theme::metrics::PADDING_Y],
             |x| &mut x.painter,
         );
         let padding = gfx::Size::new(padding[0].unwrap(), padding[1].unwrap());
@@ -87,8 +91,10 @@ impl<T: 'static> ui::Element for Button<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
+        ui::dispatch_components(self, aux);
+        ui::dispatch_list::<kit::ReadWrite<Self, T>, _>((self, aux), |(x, _)| &mut x.listeners);
+
         ui::propagate_repaint(self);
-        ui::dispatch_list(self, aux, |x| &mut x.listeners)
     }
 
     #[inline]

@@ -8,7 +8,7 @@ edition = "2018"
 default = ["kit", "themes", "app"]
 kit = []
 themes = ["kit"]
-app = ["glutin", "reclutch/skia"]
+app = ["glutin", "reclutch/skia", "kit"]
 
 [dependencies]
 reclutch = { git = "https://github.com/jazzfool/reclutch" }

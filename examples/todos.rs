@@ -140,6 +140,27 @@ impl<T: 'static> TodoItemList<T> {
                 Self::filter_items(view, aux);
             });
 
+        let mut tb = kit::ComboBox::new(view.common().clone(), aux);
+        tb.set_combos(
+            &[
+                String::from("All"),
+                String::from("Complete"),
+                String::from("Incomplete"),
+            ],
+            aux,
+        );
+        tb.set_selected(1);
+        vstack.push(
+            &tb,
+            ui::layout::VStackConfig {
+                fill_w: Some(1.),
+                bottom_margin: 5.,
+                ..Default::default()
+            }
+            .into(),
+        );
+        view.insert(tb);
+
         let filter_label = view
             .label(aux)
             .layout(&mut vstack, Some((0.0, 5.0).into()))

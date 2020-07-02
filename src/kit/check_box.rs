@@ -10,25 +10,27 @@ pub struct CheckMarkBox<T: 'static> {
 
     painter: theme::Painter<Self, T>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<Self, ui::Aux<T>>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self, T>>,
 }
 
 impl<T: 'static> CheckMarkBox<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
 
-        let interaction_listener = kit::interaction_handler(
-            aux,
-            |obj: &mut Self, aux, ev| {
-                if let kit::InteractionEvent::Press(_) = ev {
-                    obj.toggle();
-                    obj.emit(aux, CheckMarkToggledEvent(obj.checked));
-                }
-                kit::interaction_forwarder(None)(obj, aux, ev);
-            },
-            None,
-            None,
-        );
+        common.with(|x| {
+            x.push_component::<Self, _, _>(kit::InteractionState::new(
+                aux,
+                |obj: &mut Self, aux, ev| {
+                    if let kit::InteractionEvent::Press(_) = ev {
+                        obj.toggle();
+                        obj.emit(aux, CheckMarkToggledEvent(obj.checked));
+                    }
+                    kit::interaction_forwarder(None)(obj, aux, ev);
+                },
+                None,
+                None,
+            ))
+        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -44,7 +46,7 @@ impl<T: 'static> CheckMarkBox<T> {
 
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::CHECK_MARK_BOX),
             common,
-            listeners: ui::ListenerList::new(vec![interaction_listener, focus_listener]),
+            listeners: ui::ListenerList::new(vec![focus_listener]),
         };
 
         let size = theme::size_hint(&mut cm, |x| &mut x.painter);
@@ -79,7 +81,10 @@ impl<T: 'static> ui::Element for CheckMarkBox<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
-        ui::dispatch_list(self, aux, |x| &mut x.listeners);
+        ui::dispatch_components(self, aux);
+        ui::dispatch_list::<(ui::Write<Self>, ui::Write<ui::Aux<T>>), _>((self, aux), |(x, _)| {
+            &mut x.listeners
+        });
     }
 
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<T>) {
@@ -100,21 +105,21 @@ pub struct CheckBox<T: 'static> {
     label: kit::Label<T>,
 
     common: ui::CommonRef,
-    listeners: ui::ListenerList<Self, ui::Aux<T>>,
+    listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
 }
 
 impl<T: 'static> CheckBox<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
 
-        let interaction_listener = kit::interaction_handler(
-            aux,
-            |obj, aux, ev| {
-                kit::interaction_forwarder(None)(obj, aux, ev);
-            },
-            None,
-            None,
-        );
+        common.with(|x| {
+            x.push_component::<Self, _, _>(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            ));
+        });
 
         let mut check_mark = CheckMarkBox::new(common.clone(), aux);
         let label = kit::Label::new(common.clone(), aux);
@@ -144,7 +149,7 @@ impl<T: 'static> CheckBox<T> {
             label,
 
             common,
-            listeners: ui::ListenerList::new(vec![interaction_listener]),
+            listeners: ui::ListenerList::new(vec![]),
         }
     }
 }
@@ -159,8 +164,11 @@ impl<T: 'static> ui::Element for CheckBox<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
+        ui::dispatch_list::<(ui::Write<Self>, ui::Write<ui::Aux<T>>), _>((self, aux), |(x, _)| {
+            &mut x.listeners
+        });
+
         ui::propagate_repaint(self);
-        ui::dispatch_list(self, aux, |x| &mut x.listeners)
     }
 }
 

@@ -138,14 +138,17 @@ pub mod painters {
     pub const LABEL: &str = "label";
     pub const TEXT_BOX: &str = "text_box";
     pub const CHECK_MARK_BOX: &str = "check_mark_box";
+    pub const COMBO_BOX: &str = "combo_box";
+    pub const COMBO_LIST: &str = "combo_list";
+    pub const COMBO_LIST_ITEM: &str = "combo_list_item";
 }
 
 pub mod metrics {
     //! Standard visual metrics definitions used by `kit`.
     //! For a theme to support `kit`, it must implement all of these.
 
-    pub const BUTTON_PADDING_X: &str = "padding_x";
-    pub const BUTTON_PADDING_Y: &str = "padding_y";
+    pub const PADDING_X: &str = "padding_x";
+    pub const PADDING_Y: &str = "padding_y";
     pub const CHECK_MARK_SPACING: &str = "spacing";
 }
 

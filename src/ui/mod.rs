@@ -6,6 +6,7 @@ use {
     reclutch::display as gfx,
     std::{
         cell::Cell,
+        collections::HashMap,
         ops::{Deref, DerefMut},
         rc::{Rc, Weak},
     },
@@ -32,7 +33,7 @@ pub struct Aux<T: 'static> {
 impl<T: 'static> Aux<T> {
     /// Creates a new [`Listener`](Listener).
     #[inline]
-    pub fn listen<O: 'static, A: 'static>(&self) -> Listener<O, A> {
+    pub fn listen<U: uniq::Packable>(&self) -> Listener<U> {
         Listener(Some(self.queue.listen()), Vec::new())
     }
 
@@ -61,26 +62,32 @@ impl<T: 'static> Aux<T> {
     }
 }
 
+pub type Read<T> = uniq::Read<T>;
+pub type Write<T> = uniq::Write<T>;
+
 /// Listener compatible with the [`dispatch`](dispatch) function.
 ///
 /// Created via [`listen`](Aux::listen).
-pub struct Listener<O: 'static, A: 'static>(
-    Option<uniq::rc::EventListener<O, A>>,
+pub struct Listener<T: uniq::Packable>(
+    Option<uniq::rc::EventListener<T>>,
     Vec<Box<dyn FnOnce(&mut Self)>>,
 );
 
-impl<O: 'static, A: 'static> Listener<O, A> {
+impl<T: uniq::Packable> Listener<T> {
     /// Adds a handler to `self` and returns `Self`.
     ///
     /// `id` marks the source ID. The type of the third parameter of the handler is the event type.
     /// Both of these will be used to match correct events.
     ///
     /// If the ID and event type are already being handled, the handler will be replaced.
-    pub fn and_on<E: 'static>(
+    pub fn and_on<'a, E: 'static, P: 'a>(
         mut self,
         id: u64,
-        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
-    ) -> Self {
+        handler: impl FnMut(P, &E) + 'static,
+    ) -> Self
+    where
+        T: uniq::Unpackable<'a, Unpacked = P>,
+    {
         self.0.as_mut().unwrap().on(id, handler);
         self
     }
@@ -91,21 +98,27 @@ impl<O: 'static, A: 'static> Listener<O, A> {
     /// Both of these will be used to match correct events.
     ///
     /// If the ID and event type are already being handled, the handler will be replaced.
-    pub fn on<E: 'static>(
+    pub fn on<'a, E: 'static, P: 'a>(
         &mut self,
         id: u64,
-        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
-    ) -> (u64, std::any::TypeId) {
+        handler: impl FnMut(P, &E) + 'static,
+    ) -> (u64, std::any::TypeId)
+    where
+        T: uniq::Unpackable<'a, Unpacked = P>,
+    {
         self.0.as_mut().unwrap().on(id, handler)
     }
 
     /// Similar to [`on`](Listener::on), however the listener is added after processing of events is finished.
     /// This implies that this method should be only used during event processing (via `dispatch`).
-    pub fn late_on<E: 'static>(
+    pub fn late_on<'a, E: 'static, P: 'a>(
         &mut self,
         id: u64,
-        handler: impl FnMut(&mut O, &mut A, &E) + 'static,
-    ) -> (u64, std::any::TypeId) {
+        handler: impl FnMut(P, &E) + 'static,
+    ) -> (u64, std::any::TypeId)
+    where
+        T: uniq::Unpackable<'a, Unpacked = P>,
+    {
         self.1.push(Box::new(move |x| {
             x.on(id, handler);
         }));
@@ -132,44 +145,66 @@ impl<O: 'static, A: 'static> Listener<O, A> {
 }
 
 #[repr(transparent)]
-pub struct ListenerList<O: 'static, A: 'static>(Option<Vec<Listener<O, A>>>);
+pub struct ListenerList<T: uniq::Packable>(Option<Vec<Listener<T>>>);
 
-impl<O: 'static, A: 'static> ListenerList<O, A> {
+impl<T: uniq::Packable> ListenerList<T> {
     #[inline]
-    pub fn new(list: Vec<Listener<O, A>>) -> Self {
+    pub fn new(list: Vec<Listener<T>>) -> Self {
         ListenerList(Some(list))
     }
 }
 
-pub fn dispatch_list<O: 'static, A: 'static>(
-    o: &mut O,
-    a: &mut A,
-    l: impl Fn(&mut O) -> &mut ListenerList<O, A>,
-) {
-    let mut ls = l(o).0.take().unwrap();
-    for l in &mut ls {
-        l.0.as_mut().unwrap().dispatch(o, a);
-        let lates = l.1.drain(..).collect::<Vec<_>>();
-        for late in lates {
-            late(l);
+pub fn dispatch_list<'a, T, F>(it: <T as uniq::Unpackable<'a>>::Unpacked, l: F)
+where
+    T: for<'b> uniq::Unpackable<'b> + 'static,
+    F: Fn(<T as uniq::Unpackable<'a>>::Unpacked) -> &'a mut ListenerList<T>,
+{
+    unsafe {
+        // - we need unsafe because we have to repeatedly unpack (T::unpack) to access the ListenerList.
+        //      - since the &mut's are kept in tuples (and in reality they're completely opaque at this point) the
+        //          borrow checker operates at a more coarse level.
+        // - unpacking == dereferencing raw pointer
+        // - the only concern here is mutable aliasing
+        //      - as far as I can tell, this shouldn't be possible
+
+        let packed = T::pack(it);
+        let mut ls = l(T::unpack(packed)).0.take().unwrap();
+        for l in &mut ls {
+            l.0.as_mut().unwrap().dispatch_packed(packed);
+            let lates = l.1.drain(..).collect::<Vec<_>>();
+            for late in lates {
+                late(l);
+            }
         }
+        l(T::unpack(packed)).0 = Some(ls);
     }
-    l(o).0 = Some(ls);
 }
 
 /// Dispatches the event handlers in a [`Listener`](Listener).
-pub fn dispatch<O: 'static, A: 'static>(
-    o: &mut O,
-    a: &mut A,
-    l: impl Fn(&mut O) -> &mut Listener<O, A>,
+pub fn dispatch<'a, T: for<'b> uniq::Unpackable<'b> + 'static>(
+    it: <T as uniq::Unpackable<'a>>::Unpacked,
+    l: impl Fn(<T as uniq::Unpackable<'a>>::Unpacked) -> &'a mut Listener<T>,
 ) {
-    let mut ll = l(o).0.take().unwrap();
-    ll.dispatch(o, a);
-    l(o).0 = Some(ll);
-    let lates = l(o).1.drain(..).collect::<Vec<_>>();
-    for late in lates {
-        late(l(o));
+    unsafe {
+        let packed = T::pack(it);
+        let mut ll = l(T::unpack(packed)).0.take().unwrap();
+        ll.dispatch_packed(packed);
+        l(T::unpack(packed)).0 = Some(ll);
+        let mut lates = Vec::new();
+        std::mem::swap(&mut lates, &mut l(T::unpack(packed)).1);
+        for late in lates {
+            late(l(T::unpack(packed)));
+        }
     }
+}
+
+pub fn dispatch_components<T: 'static>(o: &mut impl WidgetChildren<T>, aux: &mut Aux<T>) {
+    let common = o.common().clone();
+    common.with(move |x| {
+        for component in x.components.values_mut() {
+            component.dispatch(o, aux);
+        }
+    });
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -489,6 +524,7 @@ pub fn f3<T, P1, P2, P3, W: WidgetChildren<T>>(
 /// The reference type provides `RefCell`-like semantics using `Cell`, reducing the overhead to only `Rc` instead of `Rc` + `RefCell`.
 /// It does this by `take` and `replace`, inserted around accessor closures.
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct CommonRef(Rc<Cell<Option<Common>>>);
 
 impl CommonRef {
@@ -510,7 +546,10 @@ impl CommonRef {
     ///
     /// This can be used to extract certain values or mutate, or both.
     pub fn with<R>(&self, f: impl FnOnce(&mut Common) -> R) -> R {
-        let mut common = self.0.take().unwrap();
+        let mut common = self
+            .0
+            .take()
+            .expect("`CommonRef::with` is already being invoked somewhere else");
         let r = f(&mut common);
         self.0.replace(Some(common));
         r
@@ -596,6 +635,32 @@ impl Default for FocusMode {
     }
 }
 
+pub trait Component: 'static {
+    type Type: 'static;
+    type Object: WidgetChildren<Self::Type>;
+
+    fn update(&mut self, obj: &mut Self::Object, aux: &mut Aux<Self::Type>);
+}
+
+pub trait DispatchableComponent: as_any::AsAny {
+    fn dispatch(&mut self, obj: &mut dyn std::any::Any, aux: &mut dyn std::any::Any);
+}
+
+impl as_any::Downcast for dyn DispatchableComponent {}
+
+impl<O: WidgetChildren<T>, T: 'static, C: Component<Type = T, Object = O>> DispatchableComponent
+    for C
+{
+    fn dispatch(&mut self, obj: &mut dyn std::any::Any, aux: &mut dyn std::any::Any) {
+        self.update(
+            obj.downcast_mut::<O>()
+                .expect("dispatched components with incorrect object"),
+            aux.downcast_mut::<Aux<T>>()
+                .expect("dispatched components with incorrect auxiliary"),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Visibility {
     /// The widget and it's children are visible to rendering and layout.
@@ -628,7 +693,6 @@ impl Default for Visibility {
 /// between arbitrary widgets without using event queues as a means of data transfer.
 /// This information can be initialized (only once) by constructing `with_info`.
 pub struct Common {
-    pub(crate) interaction: Interaction,
     pub(crate) layout: Option<layout::DynamicNode>,
     layout_mode: LayoutMode,
     visible: Visibility,
@@ -638,7 +702,8 @@ pub struct Common {
     cmds: CommandGroup,
     id: u64,
     info: Option<Box<dyn std::any::Any>>,
-    should_delete: bool,
+    should_detach: bool,
+    components: HashMap<std::any::TypeId, Box<dyn DispatchableComponent>>,
 }
 
 impl Common {
@@ -657,7 +722,6 @@ impl Common {
         info: impl Into<Option<Box<dyn std::any::Any>>>,
     ) -> Self {
         Common {
-            interaction: Interaction::default(),
             layout: None,
             layout_mode: Default::default(),
             visible: Default::default(),
@@ -667,7 +731,8 @@ impl Common {
             cmds: Default::default(),
             id: uniq::id::next(),
             info: info.into(),
-            should_delete: false,
+            should_detach: false,
+            components: HashMap::new(),
         }
     }
 
@@ -861,12 +926,44 @@ impl Common {
 
     #[inline]
     pub fn mark_for_detach(&mut self) {
-        self.should_delete = true;
+        self.should_detach = true;
     }
 
     #[inline]
     pub fn is_marked_for_detach(&self) -> bool {
-        self.should_delete
+        self.should_detach
+    }
+
+    pub fn push_component<
+        O: WidgetChildren<T>,
+        C: Component<Object = O, Type = T> + DispatchableComponent,
+        T: 'static,
+    >(
+        &mut self,
+        c: C,
+    ) {
+        let id = std::any::TypeId::of::<C>();
+        if !self.components.contains_key(&id) {
+            self.components.insert(id, Box::new(c));
+        }
+    }
+
+    pub fn component<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static>(
+        &self,
+    ) -> Option<&C> {
+        use as_any::Downcast;
+        self.components
+            .get(&std::any::TypeId::of::<C>())
+            .and_then(|x| x.downcast_ref::<C>())
+    }
+
+    pub fn component_mut<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static>(
+        &mut self,
+    ) -> Option<&mut C> {
+        use as_any::Downcast;
+        self.components
+            .get_mut(&std::any::TypeId::of::<C>())
+            .and_then(|x| x.downcast_mut::<C>())
     }
 
     fn update_layout_size(&mut self) {
@@ -978,6 +1075,8 @@ pub trait AnyElement {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
     /// Returns a `Boxed` `self` as a `Boxed` `Any`.
     fn as_any_box(self: Box<Self>) -> Box<dyn std::any::Any>;
+    /// Returns the type ID of the element.
+    fn type_id(&self) -> std::any::TypeId;
 }
 
 impl<E: Element + 'static> AnyElement for E {
@@ -992,6 +1091,10 @@ impl<E: Element + 'static> AnyElement for E {
     fn as_any_box(self: Box<Self>) -> Box<dyn std::any::Any> {
         self
     }
+
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<E>()
+    }
 }
 
 /// Altered version of `reclutch::widget::WidgetChildren` incorporating `Element`.
@@ -1005,6 +1108,76 @@ pub trait WidgetChildren<T>: Element<Aux = T> + 'static {
     fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>> {
         Vec::new()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VisitorBreakpoint {
+    /// The visitor will recursively iterate through all the widgets, including through the children of the visited widgets.
+    Never,
+    /// The visitor will completely return on the first visit.
+    FirstVisit,
+    /// The visitor will recursively iterate through all the widgets, but excluding the children of the visited widgets.
+    EachVisit,
+}
+
+fn visit_mut_impl<T: 'static, W: Element<Aux = T> + 'static>(
+    root: &mut dyn WidgetChildren<T>,
+    visitor: &mut impl FnMut(&mut W),
+    breakpoint: VisitorBreakpoint,
+) -> bool {
+    for child in root.children_mut() {
+        if let Some(x) = child.as_any_mut().downcast_mut::<W>() {
+            visitor(x);
+            if breakpoint == VisitorBreakpoint::FirstVisit {
+                return true;
+            }
+        }
+        if breakpoint == VisitorBreakpoint::EachVisit {
+            continue;
+        }
+        if visit_mut_impl(child, visitor, breakpoint) {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn visit_mut<T: 'static, W: Element<Aux = T> + 'static>(
+    root: &mut dyn WidgetChildren<T>,
+    mut visitor: impl FnMut(&mut W),
+    breakpoint: VisitorBreakpoint,
+) {
+    visit_mut_impl(root, &mut visitor, breakpoint);
+}
+
+fn visit_impl<T: 'static, W: Element<Aux = T> + 'static>(
+    root: &dyn WidgetChildren<T>,
+    visitor: &mut impl FnMut(&W),
+    breakpoint: VisitorBreakpoint,
+) -> bool {
+    for child in root.children() {
+        if let Some(x) = child.as_any().downcast_ref::<W>() {
+            visitor(x);
+            if breakpoint == VisitorBreakpoint::FirstVisit {
+                return true;
+            }
+        }
+        if breakpoint == VisitorBreakpoint::EachVisit {
+            continue;
+        }
+        if visit_impl(child, visitor, breakpoint) {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn visit<T: 'static, W: Element<Aux = T> + 'static>(
+    root: &dyn WidgetChildren<T>,
+    mut visitor: impl FnMut(&W),
+    breakpoint: VisitorBreakpoint,
+) {
+    visit_impl(root, &mut visitor, breakpoint);
 }
 
 /// Helper type; `WidgetChildren` and `Aux`, with a given additional data type.
@@ -1215,6 +1388,41 @@ pub trait ElementMixin: Element {
     #[inline]
     fn is_marked_for_detach(&self) -> bool {
         self.common().with(|x| x.is_marked_for_detach())
+    }
+
+    #[inline]
+    fn push_component<
+        O: WidgetChildren<T>,
+        C: Component<Object = O, Type = T> + DispatchableComponent,
+        T: 'static,
+    >(
+        &mut self,
+        c: C,
+    ) {
+        self.common().with(|x| x.push_component::<O, C, T>(c));
+    }
+
+    #[inline]
+    fn with_component<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static, R>(
+        &self,
+        f: impl FnOnce(&C) -> R,
+    ) -> Option<R> {
+        self.common()
+            .with(|x| x.component::<C, O, T>().map(|x| f(x)))
+    }
+
+    #[inline]
+    fn with_component_mut<
+        C: Component<Object = O, Type = T>,
+        O: WidgetChildren<T>,
+        T: 'static,
+        R,
+    >(
+        &self,
+        f: impl FnOnce(&mut C) -> R,
+    ) -> Option<R> {
+        self.common()
+            .with(|x| x.component_mut::<C, O, T>().map(|x| f(x)))
     }
 }
 

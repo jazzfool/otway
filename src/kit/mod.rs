@@ -5,10 +5,11 @@ use {
 
 pub mod button;
 pub mod check_box;
+pub mod combo_box;
 pub mod label;
 pub mod text_box;
 
-pub use {button::*, check_box::*, label::*, text_box::*};
+pub use {button::*, check_box::*, combo_box::*, label::*, text_box::*};
 
 /// The widget was pressed.
 #[repr(transparent)]
@@ -33,6 +34,9 @@ pub struct KeyReleaseEvent(pub ui::KeyInput);
 #[repr(transparent)]
 pub struct TextEvent(pub char);
 
+/// Standard set of listener read/writes: `&mut Widget` and `&mut Aux`.
+pub type ReadWrite<W, T> = (ui::Write<W>, ui::Write<ui::Aux<T>>);
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InteractionEvent {
     Press(gfx::Point),
@@ -41,95 +45,135 @@ pub enum InteractionEvent {
     EndHover(gfx::Point),
 }
 
-pub fn interaction_handler<T, W: ui::WidgetChildren<T>>(
-    aux: &mut ui::Aux<T>,
-    callback: impl Fn(&mut W, &mut ui::Aux<T>, InteractionEvent) + Copy + 'static,
-    mask: impl Into<Option<InteractionMask>>,
-    ignore_visibility: impl Into<Option<bool>>,
-) -> ui::Listener<W, ui::Aux<T>> {
-    let mask = mask.into().unwrap_or(Default::default());
-    let ignore_vis = ignore_visibility.into().unwrap_or(false);
-    aux.listen()
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux, event: &ui::MousePressEvent| {
-                if !mask.press {
-                    return;
-                }
-                let v = obj.visible();
-                if !ignore_vis && invisible_to_input(v) {
-                    return;
-                }
+pub struct InteractionState<
+    T: 'static,
+    W: ui::WidgetChildren<T>,
+    F: FnMut(&mut W, &mut ui::Aux<T>, InteractionEvent) + 'static,
+> {
+    pressed: bool,
+    hovered: bool,
 
-                let bounds = obj.bounds();
-                if let Some(&(_, pos)) = event
-                    .0
-                    .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
-                {
-                    obj.common().with(|x| x.interaction.pressed = true);
-                    callback(obj, aux, InteractionEvent::Press(pos));
-                }
-            },
-        )
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux, event: &ui::MouseReleaseEvent| {
-                if !mask.release {
-                    return;
-                }
-                let v = obj.visible();
-                if !ignore_vis && invisible_to_input(v) {
-                    return;
-                }
+    listener: ui::Listener<(ui::Write<W>, ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
+    callback: F,
+    mask: InteractionMask,
+    ignore_vis: bool,
 
-                let bounds = obj.bounds();
-                if let Some(&(_, pos)) = event
-                    .0
-                    .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
-                {
-                    obj.common().with(|x| x.interaction.pressed = false);
-                    callback(obj, aux, InteractionEvent::Release(pos));
-                }
-            },
-        )
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux, event: &ui::MouseMoveEvent| {
-                if !mask.begin_hover && !mask.end_hover {
-                    return;
-                }
-                let v = obj.visible();
-                if !ignore_vis && invisible_to_input(v) {
-                    return;
-                }
+    phantom: std::marker::PhantomData<(T, W)>,
+}
 
-                let bounds = obj.bounds();
-                let was_hovered = obj.common().with(|x| x.interaction.hovered);
-                let pos = if let Some(&pos) = event.0.with(|&pos| bounds.contains(pos)) {
-                    obj.common().with(|x| x.interaction.hovered = true);
-                    pos
-                } else {
-                    obj.common().with(|x| x.interaction.hovered = false);
-                    event.0.get().clone()
-                };
+impl<
+        T: 'static,
+        W: ui::WidgetChildren<T>,
+        F: FnMut(&mut W, &mut ui::Aux<T>, InteractionEvent) + 'static,
+    > InteractionState<T, W, F>
+{
+    pub fn new(
+        aux: &mut ui::Aux<T>,
+        callback: F,
+        mask: impl Into<Option<InteractionMask>>,
+        ignore_visibility: impl Into<Option<bool>>,
+    ) -> Self {
+        InteractionState {
+            pressed: false,
+            hovered: false,
 
-                if was_hovered != obj.common().with(|x| x.interaction.hovered) {
-                    if was_hovered {
-                        callback(obj, aux, InteractionEvent::EndHover(pos));
-                    } else {
-                        callback(obj, aux, InteractionEvent::BeginHover(pos));
+            listener: aux
+                .listen::<(ui::Write<W>, ui::Write<Self>, ui::Write<ui::Aux<T>>)>()
+                .and_on(aux.id, |(obj, state, aux), ev: &ui::MousePressEvent| {
+                    if !state.mask.press {
+                        return;
                     }
-                }
-            },
-        )
+                    let v = obj.visible();
+                    if !state.ignore_vis && invisible_to_input(v) {
+                        return;
+                    }
+
+                    let bounds = obj.bounds();
+                    if let Some(&(_, pos)) = ev
+                        .0
+                        .with(|&(btn, pos)| btn == ui::MouseButton::Left && bounds.contains(pos))
+                    {
+                        state.pressed = true;
+                        (state.callback)(obj, aux, InteractionEvent::Press(pos));
+                    }
+                })
+                .and_on(
+                    aux.id,
+                    move |(obj, state, aux), ev: &ui::MouseReleaseEvent| {
+                        if !state.mask.release {
+                            return;
+                        }
+                        let v = obj.visible();
+                        if !state.ignore_vis && invisible_to_input(v) {
+                            return;
+                        }
+
+                        // FIXME: release applies when pressed, not when mouse is in bounds
+
+                        let bounds = obj.bounds();
+                        if let Some(&(_, pos)) = ev.0.with(|&(btn, pos)| {
+                            btn == ui::MouseButton::Left && bounds.contains(pos)
+                        }) {
+                            state.pressed = false;
+                            (state.callback)(obj, aux, InteractionEvent::Release(pos));
+                        }
+                    },
+                )
+                .and_on(aux.id, move |(obj, state, aux), ev: &ui::MouseMoveEvent| {
+                    if !state.mask.hover {
+                        return;
+                    }
+                    let v = obj.visible();
+                    if !state.ignore_vis && invisible_to_input(v) {
+                        return;
+                    }
+
+                    let bounds = obj.bounds();
+                    let was_hovered = state.hovered;
+                    let pos = if let Some(&pos) = ev.0.with(|&pos| bounds.contains(pos)) {
+                        state.hovered = true;
+                        pos
+                    } else {
+                        state.hovered = false;
+                        ev.0.get().clone()
+                    };
+
+                    if was_hovered != state.hovered {
+                        if was_hovered {
+                            (state.callback)(obj, aux, InteractionEvent::EndHover(pos));
+                        } else {
+                            (state.callback)(obj, aux, InteractionEvent::BeginHover(pos));
+                        }
+                    }
+                }),
+            callback,
+            mask: mask.into().unwrap_or_default(),
+            ignore_vis: ignore_visibility.into().unwrap_or(false),
+
+            phantom: Default::default(),
+        }
+    }
+}
+
+impl<
+        T: 'static,
+        W: ui::WidgetChildren<T>,
+        F: FnMut(&mut W, &mut ui::Aux<T>, InteractionEvent) + 'static,
+    > ui::Component for InteractionState<T, W, F>
+{
+    type Type = T;
+    type Object = W;
+
+    fn update(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<Self::Type>) {
+        ui::dispatch((obj, self, aux), |x: (_, &mut Self, _)| &mut x.1.listener)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InteractionMask {
     pub press: bool,
     pub release: bool,
-    pub begin_hover: bool,
-    pub end_hover: bool,
+    pub hover: bool,
 }
 
 impl Default for InteractionMask {
@@ -137,8 +181,7 @@ impl Default for InteractionMask {
         InteractionMask {
             press: true,
             release: true,
-            begin_hover: true,
-            end_hover: true,
+            hover: true,
         }
     }
 }
@@ -159,12 +202,12 @@ pub fn interaction_forwarder<E: ui::Element<Aux = T>, T: 'static>(
             }
         }
         InteractionEvent::BeginHover(pos) => {
-            if mask.begin_hover {
+            if mask.hover {
                 obj.emit(aux, BeginHoverEvent(pos));
             }
         }
         InteractionEvent::EndHover(pos) => {
-            if mask.end_hover {
+            if mask.hover {
                 obj.emit(aux, EndHoverEvent(pos));
             }
         }
@@ -202,11 +245,11 @@ pub fn focus_handler<T, W: ui::WidgetChildren<T>>(
     aux: &mut ui::Aux<T>,
     callback: impl Fn(&mut W, &mut ui::Aux<T>, FocusEvent) + Copy + 'static,
     focus_config: FocusConfig,
-) -> ui::Listener<W, ui::Aux<T>> {
-    aux.listen()
+) -> ui::Listener<(ui::Write<W>, ui::Write<ui::Aux<T>>)> {
+    aux.listen::<(ui::Write<W>, ui::Write<ui::Aux<T>>)>()
         .and_on(
             focus_config.interaction_handler,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, _: &PressEvent| {
+            move |(obj, aux), _: &PressEvent| {
                 if focus_config.mouse_trigger == FocusMouseTrigger::Press {
                     aux.grab_focus(obj.common().clone());
                 }
@@ -214,32 +257,29 @@ pub fn focus_handler<T, W: ui::WidgetChildren<T>>(
         )
         .and_on(
             focus_config.interaction_handler,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, _: &ReleaseEvent| {
+            move |(obj, aux), _: &ReleaseEvent| {
                 if focus_config.mouse_trigger == FocusMouseTrigger::Release {
                     aux.grab_focus(obj.common().clone());
                 }
             },
         )
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, evt: &ui::FocusChangedEvent| {
-                if evt
-                    .old_focus
-                    .as_ref()
-                    .map(|x| x == obj.common())
-                    .unwrap_or(false)
-                {
-                    callback(obj, aux, FocusEvent::Lost);
-                } else if evt
-                    .new_focus
-                    .as_ref()
-                    .map(|x| x == obj.common())
-                    .unwrap_or(false)
-                {
-                    callback(obj, aux, FocusEvent::Gained);
-                }
-            },
-        )
+        .and_on(aux.id, move |(obj, aux), evt: &ui::FocusChangedEvent| {
+            if evt
+                .old_focus
+                .as_ref()
+                .map(|x| x == obj.common())
+                .unwrap_or(false)
+            {
+                callback(obj, aux, FocusEvent::Lost);
+            } else if evt
+                .new_focus
+                .as_ref()
+                .map(|x| x == obj.common())
+                .unwrap_or(false)
+            {
+                callback(obj, aux, FocusEvent::Gained);
+            }
+        })
 }
 
 pub fn focus_forwarder<E: ui::Element<Aux = T>, T: 'static>(
@@ -263,44 +303,35 @@ pub enum KeyboardEvent {
 pub fn keyboard_handler<T, W: ui::WidgetChildren<T>>(
     aux: &mut ui::Aux<T>,
     callback: impl Fn(&mut W, &mut ui::Aux<T>, KeyboardEvent) + Copy + 'static,
-) -> ui::Listener<W, ui::Aux<T>> {
-    aux.listen()
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, event: &ui::KeyPressEvent| {
-                if invisible_to_input(obj.visible()) {
-                    return;
-                }
+) -> ui::Listener<(ui::Write<W>, ui::Write<ui::Aux<T>>)> {
+    aux.listen::<(ui::Write<W>, ui::Write<ui::Aux<T>>)>()
+        .and_on(aux.id, move |(obj, aux), event: &ui::KeyPressEvent| {
+            if invisible_to_input(obj.visible()) {
+                return;
+            }
 
-                if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
-                    callback(obj, aux, KeyboardEvent::KeyPress(*e));
-                }
-            },
-        )
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, event: &ui::KeyReleaseEvent| {
-                if invisible_to_input(obj.visible()) {
-                    return;
-                }
+            if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
+                callback(obj, aux, KeyboardEvent::KeyPress(*e));
+            }
+        })
+        .and_on(aux.id, move |(obj, aux), event: &ui::KeyReleaseEvent| {
+            if invisible_to_input(obj.visible()) {
+                return;
+            }
 
-                if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
-                    callback(obj, aux, KeyboardEvent::KeyRelease(*e));
-                }
-            },
-        )
-        .and_on(
-            aux.id,
-            move |obj: &mut W, aux: &mut ui::Aux<T>, event: &ui::TextEvent| {
-                if invisible_to_input(obj.visible()) {
-                    return;
-                }
+            if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
+                callback(obj, aux, KeyboardEvent::KeyRelease(*e));
+            }
+        })
+        .and_on(aux.id, move |(obj, aux), event: &ui::TextEvent| {
+            if invisible_to_input(obj.visible()) {
+                return;
+            }
 
-                if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
-                    callback(obj, aux, KeyboardEvent::Text(*e));
-                }
-            },
-        )
+            if let Some(e) = event.0.with(|_| aux.has_focus(obj.common())) {
+                callback(obj, aux, KeyboardEvent::Text(*e));
+            }
+        })
 }
 
 pub fn keyboard_forwarder<E: ui::Element<Aux = T>, T: 'static>(

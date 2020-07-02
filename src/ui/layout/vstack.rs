@@ -5,6 +5,7 @@ pub struct VStackConfig {
     pub top_margin: f32,
     pub bottom_margin: f32,
     pub alignment: layout::Alignment,
+    pub fill_w: Option<f32>,
 }
 
 impl From<(f32, f32)> for VStackConfig {
@@ -107,12 +108,17 @@ impl layout::Layout for VStack {
 
             y += entry.config.top_margin;
             let rect = entry.item.rect();
+            let w = if let Some(f) = entry.config.fill_w {
+                bounds.size.width * f
+            } else {
+                rect.size.width
+            };
             entry.item.set_rect(gfx::Rect::new(
                 gfx::Point::new(
                     layout::align_x(rect, bounds, entry.config.alignment, 0.0),
                     y,
                 ),
-                rect.size,
+                gfx::Size::new(w, rect.size.height),
             ));
             y += rect.size.height + entry.config.bottom_margin;
         }

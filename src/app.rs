@@ -15,10 +15,12 @@ pub enum AppError {
     SkiaError(#[from] reclutch::error::SkiaError),
 }
 
+type RootReadWrites<T, U> = (ui::Write<T>, ui::Write<AppAux<U>>);
+
 pub struct Root<T: 'static, W: ui::WidgetChildren<AppData<T>>> {
     child: W,
     common: ui::CommonRef,
-    phantom: std::marker::PhantomData<T>,
+    listeners: ui::ListenerList<RootReadWrites<Self, T>>,
 }
 
 impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
@@ -27,6 +29,10 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
     #[inline]
     fn common(&self) -> &ui::CommonRef {
         &self.common
+    }
+
+    fn update(&mut self, aux: &mut AppAux<T>) {
+        ui::dispatch_list::<RootReadWrites<Self, T>, _>((self, aux), |(x, _)| &mut x.listeners);
     }
 
     #[inline]
@@ -51,10 +57,28 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> Root<T, W> {
         common: ui::CommonRef,
         aux: &mut AppAux<T>,
     ) -> Self {
+        common.with(|x| {
+            x.push_component::<Self, _, _>(crate::kit::InteractionState::new(
+                aux,
+                crate::kit::interaction_forwarder(None),
+                None,
+                None,
+            ));
+        });
+
+        let focus_listener = crate::kit::focus_handler(
+            aux,
+            |_, _, _| {},
+            crate::kit::FocusConfig {
+                interaction_handler: common.with(|x| x.id()),
+                mouse_trigger: Default::default(),
+            },
+        );
+
         Root {
             child: new(common.clone(), aux),
             common,
-            phantom: Default::default(),
+            listeners: ui::ListenerList::new(vec![focus_listener]),
         }
     }
 }

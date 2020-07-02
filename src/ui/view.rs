@@ -44,7 +44,7 @@ pub struct View<T: 'static, S: 'static> {
     children: BTreeMap<u64, Box<AuxWidgetChildren<T>>>,
     state_changed: Option<Vec<StateChangedCallback<Self>>>,
     common: CommonRef,
-    listener: Listener<Self, Aux<T>>,
+    listener: Listener<(Write<Self>, Write<Aux<T>>)>,
 }
 
 impl<T: 'static, S: 'static> View<T, S> {
@@ -66,8 +66,12 @@ impl<T: 'static, S: 'static> View<T, S> {
         new: impl FnOnce(CommonRef, &mut Aux<T>) -> W,
         aux: &mut Aux<T>,
     ) -> ChildRef<W> {
-        self.children
-            .insert(self.next_child, Box::new(new(self.common.clone(), aux)));
+        self.insert(new(self.common.clone(), aux))
+    }
+
+    /// Inserts an existing widget and returns a reference to it.
+    pub fn insert<W: WidgetChildren<T> + 'static>(&mut self, child: W) -> ChildRef<W> {
+        self.children.insert(self.next_child, Box::new(child));
         self.next_child += 1;
         ChildRef(
             self.next_child - 1,
@@ -115,11 +119,12 @@ impl<T: 'static, S: 'static> View<T, S> {
     pub fn handle<W: WidgetChildren<T> + 'static, Eo: 'static>(
         &mut self,
         child: ChildRef<W>,
-        handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
+        mut handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
     ) {
         let id = self.get(child).map(|x| x.common().with(|x| x.id()));
         if let Some(id) = id {
-            self.listener.on(id, handler);
+            self.listener
+                .on(id, move |(view, aux), ev| handler(view, aux, ev));
         }
     }
 
@@ -128,23 +133,24 @@ impl<T: 'static, S: 'static> View<T, S> {
     pub fn late_handle<W: WidgetChildren<T> + 'static, Eo: 'static>(
         &mut self,
         child: ChildRef<W>,
-        handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
+        mut handler: impl FnMut(&mut Self, &mut Aux<T>, &Eo) + 'static,
     ) {
         let id = self.get(child).map(|x| x.common().with(|x| x.id()));
         if let Some(id) = id {
-            self.listener.late_on(id, handler);
+            self.listener
+                .late_on(id, move |(view, aux), ev| handler(view, aux, ev));
         }
     }
 
     /// Returns an immutable reference to the inner listener.
     #[inline]
-    pub fn listener(&self) -> &Listener<Self, Aux<T>> {
+    pub fn listener(&self) -> &Listener<(Write<Self>, Write<Aux<T>>)> {
         &self.listener
     }
 
     /// Returns a mutable reference to the inner listener.
     #[inline]
-    pub fn listener_mut(&mut self) -> &mut Listener<Self, Aux<T>> {
+    pub fn listener_mut(&mut self) -> &mut Listener<(Write<Self>, Write<Aux<T>>)> {
         &mut self.listener
     }
 
@@ -167,6 +173,14 @@ impl<T: 'static, S: 'static> View<T, S> {
         }
         self.state_changed = Some(handlers);
         r
+    }
+
+    /// Returns a mutable reference.
+    /// This will **not** trigger a `state_changed` callback.
+    /// Thus, it is handy for avoiding infinite recursion when mutating state inside a `state_changed` callback.
+    #[inline]
+    pub fn state_mut(&mut self) -> &S {
+        &mut self.state
     }
 
     /// Adds a callback for state changes.
@@ -196,10 +210,9 @@ impl<T: 'static, S: 'static> Element for View<T, S> {
         &self.common
     }
 
-    #[inline]
     fn update(&mut self, aux: &mut Aux<T>) {
         propagate_repaint(self);
-        dispatch(self, aux, |x| &mut x.listener);
+        dispatch((self, aux), |(x, _): (&mut Self, _)| &mut x.listener);
     }
 }
 
@@ -213,7 +226,7 @@ pub struct PartialView<T: 'static, S: ViewPart<T>> {
     state: S,
     state_changed: Option<Vec<StateChangedCallback<Self>>>,
     common: CommonRef,
-    listener: Listener<Self, Aux<T>>,
+    listener: Listener<(Write<Self>, Write<Aux<T>>)>,
 }
 
 impl<T: 'static, S: ViewPart<T>> PartialView<T, S> {
@@ -230,13 +243,13 @@ impl<T: 'static, S: ViewPart<T>> PartialView<T, S> {
 
     /// Returns an immutable reference to the inner listener.
     #[inline]
-    pub fn listener(&self) -> &Listener<Self, Aux<T>> {
+    pub fn listener(&self) -> &Listener<(Write<Self>, Write<Aux<T>>)> {
         &self.listener
     }
 
     /// Returns a mutable reference to the inner listener.
     #[inline]
-    pub fn listener_mut(&mut self) -> &mut Listener<Self, Aux<T>> {
+    pub fn listener_mut(&mut self) -> &mut Listener<(Write<Self>, Write<Aux<T>>)> {
         &mut self.listener
     }
 
@@ -259,6 +272,14 @@ impl<T: 'static, S: ViewPart<T>> PartialView<T, S> {
         }
         self.state_changed = Some(handlers);
         r
+    }
+
+    /// Returns a mutable reference.
+    /// This will **not** trigger a `state_changed` callback.
+    /// Thus, it is handy for avoiding infinite recursion when mutating state inside a `state_changed` callback.
+    #[inline]
+    pub fn state_mut(&mut self) -> &S {
+        &mut self.state
     }
 
     /// Adds a callback for state changes.
@@ -292,6 +313,6 @@ impl<T: 'static, S: ViewPart<T>> Element for PartialView<T, S> {
 
     fn update(&mut self, aux: &mut Aux<Self::Aux>) {
         propagate_repaint(self);
-        dispatch(self, aux, |x| &mut x.listener);
+        dispatch((self, aux), |(x, _): (&mut Self, _)| &mut x.listener);
     }
 }
