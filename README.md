@@ -24,30 +24,7 @@ What most toolkits do to generalize this across widgets is to simply bake it int
 
 In Otway, these are solved by components. Components simply consist of some data and an event handler. In that way, they resemble the structure of a widget. The difference is that components can be attached to any widget to inflict any functionality.
 
-As an example, we can attach the provided mouse interaction component to any widget we like.
-
-```rust
-let mut some_widget = SomeWidget::new(parent, aux);
-
-some_widget.push_component(
-    InteractionComponent::new(
-        aux,
-        |some_widget, _, ev| {
-            match ev {
-                InteractionEvent::Pressed(_) => {
-                    println!("some_widget was clicked on");
-                    some_widget.change_color();
-                },
-                _ => {},
-            }
-        },
-        None,
-        None,
-    ),
-);
-```
-
-You can write your own components to introduce custom logic for any widget, foreign or not.
+You can write your own components to introduce custom logic, but some have already been written in the toolkit.
 
 ## Event Handling
 
