@@ -7,23 +7,15 @@ pub struct ComboListItem<T: 'static> {
     label: kit::Label<T>,
     selected: bool,
 
-    painter: theme::Painter<Self, T>,
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self>>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static> ComboListItem<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
-
-        common.with(|x| {
-            x.push_component::<Self, _, _>(kit::InteractionState::new(
-                aux,
-                kit::interaction_forwarder(None),
-                None,
-                None,
-            ));
-        });
 
         ComboListItem {
             label: kit::Label::new(common.clone(), aux),
@@ -32,6 +24,12 @@ impl<T: 'static> ComboListItem<T> {
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::COMBO_LIST_ITEM),
             common,
             listeners: ui::ListenerList::new(vec![]),
+            components: ui::ComponentList::new().and_push(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            )),
         }
     }
 
@@ -73,7 +71,8 @@ impl<T: 'static> ui::Element for ComboListItem<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<Self::Aux>) {
-        ui::dispatch_list((self, aux), |x: (&mut Self, _)| &mut x.0.listeners);
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
+        ui::dispatch_list::<kit::ReadWrite<Self>, _>((self, aux), |(x, _)| &mut x.listeners);
     }
 
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<Self::Aux>) {
@@ -95,23 +94,15 @@ pub struct ComboList<T: 'static> {
     combos: Vec<String>,
     items: Vec<ComboListItem<T>>,
 
-    painter: theme::Painter<Self, T>,
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
     listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static> ComboList<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
-
-        common.with(|x| {
-            x.push_component::<Self, _, _>(kit::InteractionState::new(
-                aux,
-                kit::interaction_forwarder(None),
-                None,
-                None,
-            ));
-        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -129,6 +120,12 @@ impl<T: 'static> ComboList<T> {
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::COMBO_LIST),
             common,
             listeners: ui::ListenerList::new(vec![focus_listener]),
+            components: ui::ComponentList::new().and_push(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            )),
         }
     }
 
@@ -174,12 +171,9 @@ impl<T: 'static> ui::Element for ComboList<T> {
         &self.common
     }
 
-    #[inline]
     fn update(&mut self, aux: &mut ui::Aux<Self::Aux>) {
-        ui::dispatch_components(self, aux);
-        ui::dispatch_list::<(ui::Write<Self>, ui::Write<ui::Aux<T>>), _>((self, aux), |(x, _)| {
-            &mut x.listeners
-        });
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
+        ui::dispatch_list::<kit::ReadWrite<Self>, _>((self, aux), |(x, _)| &mut x.listeners);
 
         ui::propagate_repaint(self);
     }
@@ -217,30 +211,15 @@ pub struct ComboBox<T: 'static> {
     list: Option<ComboList<T>>,
     selected: Option<usize>,
 
-    painter: theme::Painter<Self, T>,
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self>>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static> ComboBox<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
-
-        common.with(|x| {
-            x.push_component::<Self, _, _>(kit::InteractionState::new(
-                aux,
-                |obj: &mut Self, aux, ev| {
-                    match ev {
-                        kit::InteractionEvent::Press(_) => obj.show_combo_list(aux),
-                        _ => {}
-                    }
-
-                    kit::interaction_forwarder(None)(obj, aux, ev);
-                },
-                None,
-                None,
-            ));
-        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -260,6 +239,19 @@ impl<T: 'static> ComboBox<T> {
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::COMBO_BOX),
             common,
             listeners: ui::ListenerList::new(vec![focus_listener]),
+            components: ui::ComponentList::new().and_push(kit::InteractionState::new(
+                aux,
+                |obj: &mut Self, aux, ev| {
+                    match ev {
+                        kit::InteractionEvent::Press(_) => obj.show_combo_list(aux),
+                        _ => {}
+                    }
+
+                    kit::interaction_forwarder(None)(obj, aux, ev);
+                },
+                None,
+                None,
+            )),
         }
     }
 
@@ -352,8 +344,10 @@ impl<T: 'static> ui::Element for ComboBox<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<Self::Aux>) {
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
+        ui::dispatch_list::<kit::ReadWrite<Self>, _>((self, aux), |(x, _)| &mut x.listeners);
+
         ui::propagate_repaint(self);
-        ui::dispatch_list((self, aux), |x: (&mut Self, _)| &mut x.0.listeners);
     }
 
     fn draw(&mut self, display: &mut dyn gfx::GraphicsDisplay, aux: &mut ui::Aux<Self::Aux>) {

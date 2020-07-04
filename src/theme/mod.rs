@@ -18,9 +18,9 @@ pub enum ThemeError {
     FontError(#[from] reclutch::error::FontError),
 }
 
-pub struct Painter<O: 'static, T: 'static>(
-    Option<Box<dyn AnyPainter<T>>>,
-    std::marker::PhantomData<O>,
+pub struct Painter<E: ui::Element>(
+    Option<Box<dyn AnyPainter<E::Aux>>>,
+    std::marker::PhantomData<E>,
 );
 
 pub trait TypedPainter<T: 'static>: AnyPainter<T> {
@@ -80,14 +80,17 @@ pub trait Theme<T: 'static> {
     fn standards(&self) -> Standards;
 }
 
-pub fn get_painter<O: 'static, T: 'static>(theme: &dyn Theme<T>, p: &'static str) -> Painter<O, T> {
+pub fn get_painter<E: ui::Element + 'static>(
+    theme: &dyn Theme<E::Aux>,
+    p: &'static str,
+) -> Painter<E> {
     Painter(Some(theme.painter(p)), Default::default())
 }
 
-pub fn paint<O: 'static, T: 'static>(
-    obj: &mut O,
-    p: impl Fn(&mut O) -> &mut Painter<O, T>,
-    aux: &mut ui::Aux<T>,
+pub fn paint<E: ui::Element + 'static>(
+    obj: &mut E,
+    p: impl Fn(&mut E) -> &mut Painter<E>,
+    aux: &mut ui::Aux<E::Aux>,
 ) -> Vec<gfx::DisplayCommand> {
     let mut painter = p(obj).0.take().unwrap();
     let out = AnyPainter::paint(&mut *painter, obj, aux);
@@ -95,9 +98,9 @@ pub fn paint<O: 'static, T: 'static>(
     out
 }
 
-pub fn size_hint<O: 'static, T: 'static>(
-    obj: &mut O,
-    p: impl Fn(&mut O) -> &mut Painter<O, T>,
+pub fn size_hint<E: ui::Element + 'static>(
+    obj: &mut E,
+    p: impl Fn(&mut E) -> &mut Painter<E>,
 ) -> gfx::Size {
     let mut painter = p(obj).0.take().unwrap();
     let out = AnyPainter::size_hint(&mut *painter, obj);
@@ -105,10 +108,10 @@ pub fn size_hint<O: 'static, T: 'static>(
     out
 }
 
-pub fn metrics<O: 'static, T: 'static>(
-    obj: &mut O,
+pub fn metrics<E: ui::Element + 'static>(
+    obj: &mut E,
     metric: &'static str,
-    p: impl Fn(&mut O) -> &mut Painter<O, T>,
+    p: impl Fn(&mut E) -> &mut Painter<E>,
 ) -> Option<f32> {
     let painter = p(obj).0.take().unwrap();
     let out = AnyPainter::metrics(&*painter, obj, metric);
@@ -116,10 +119,10 @@ pub fn metrics<O: 'static, T: 'static>(
     out
 }
 
-pub fn multi_metrics<O: 'static, T: 'static>(
-    obj: &mut O,
+pub fn multi_metrics<E: ui::Element + 'static>(
+    obj: &mut E,
     metric: &[&'static str],
-    p: impl Fn(&mut O) -> &mut Painter<O, T>,
+    p: impl Fn(&mut E) -> &mut Painter<E>,
 ) -> Vec<Option<f32>> {
     let painter = p(obj).0.take().unwrap();
     let mut out = Vec::new();

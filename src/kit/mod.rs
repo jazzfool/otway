@@ -35,7 +35,7 @@ pub struct KeyReleaseEvent(pub ui::KeyInput);
 pub struct TextEvent(pub char);
 
 /// Standard set of listener read/writes: `&mut Widget` and `&mut Aux`.
-pub type ReadWrite<W, T> = (ui::Write<W>, ui::Write<ui::Aux<T>>);
+pub type ReadWrite<E> = (ui::Write<E>, ui::Write<ui::Aux<<E as ui::Element>::Aux>>);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InteractionEvent {
@@ -165,7 +165,7 @@ impl<
     type Object = W;
 
     fn update(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<Self::Type>) {
-        ui::dispatch((obj, self, aux), |x: (_, &mut Self, _)| &mut x.1.listener)
+        ui::dispatch((obj, self, aux), |x: (_, &mut Self, _)| &mut x.1.listener);
     }
 }
 

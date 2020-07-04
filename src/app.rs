@@ -19,8 +19,10 @@ type RootReadWrites<T, U> = (ui::Write<T>, ui::Write<AppAux<U>>);
 
 pub struct Root<T: 'static, W: ui::WidgetChildren<AppData<T>>> {
     child: W,
+
     common: ui::CommonRef,
     listeners: ui::ListenerList<RootReadWrites<Self, T>>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
@@ -32,6 +34,7 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> ui::Element for Root<T, W> {
     }
 
     fn update(&mut self, aux: &mut AppAux<T>) {
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
         ui::dispatch_list::<RootReadWrites<Self, T>, _>((self, aux), |(x, _)| &mut x.listeners);
     }
 
@@ -57,15 +60,6 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> Root<T, W> {
         common: ui::CommonRef,
         aux: &mut AppAux<T>,
     ) -> Self {
-        common.with(|x| {
-            x.push_component::<Self, _, _>(crate::kit::InteractionState::new(
-                aux,
-                crate::kit::interaction_forwarder(None),
-                None,
-                None,
-            ));
-        });
-
         let focus_listener = crate::kit::focus_handler(
             aux,
             |_, _, _| {},
@@ -77,8 +71,15 @@ impl<T: 'static, W: ui::WidgetChildren<AppData<T>>> Root<T, W> {
 
         Root {
             child: new(common.clone(), aux),
+
             common,
             listeners: ui::ListenerList::new(vec![focus_listener]),
+            components: ui::ComponentList::new().and_push(crate::kit::InteractionState::new(
+                aux,
+                crate::kit::interaction_forwarder(None),
+                None,
+                None,
+            )),
         }
     }
 }

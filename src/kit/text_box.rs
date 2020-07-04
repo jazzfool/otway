@@ -18,23 +18,15 @@ pub struct TextBox<T: 'static> {
     multi_line: bool,
     cursor: usize,
 
-    painter: theme::Painter<Self, T>,
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<(ui::Write<Self>, ui::Write<ui::Aux<T>>)>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self>>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static> TextBox<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
-
-        common.with(|x| {
-            x.push_component::<Self, _, _>(kit::InteractionState::new(
-                aux,
-                kit::interaction_forwarder(None),
-                None,
-                None,
-            ));
-        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -84,6 +76,14 @@ impl<T: 'static> TextBox<T> {
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::TEXT_BOX),
             common,
             listeners: ui::ListenerList::new(vec![focus_listener, keyboard_listener]),
+            components: ui::ComponentList::new().and_push(
+                kit::InteractionState::<T, Self, _>::new(
+                    aux,
+                    kit::interaction_forwarder(None),
+                    None,
+                    None,
+                ),
+            ),
         }
     }
 
@@ -208,9 +208,8 @@ impl<T: 'static> ui::Element for TextBox<T> {
                 theme::colors::FOREGROUND
             }));
 
-        ui::dispatch_list::<(ui::Write<Self>, ui::Write<ui::Aux<T>>), _>((self, aux), |(x, _)| {
-            &mut x.listeners
-        });
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
+        ui::dispatch_list::<kit::ReadWrite<Self>, _>((self, aux), |(x, _)| &mut x.listeners);
 
         ui::propagate_repaint(self);
     }

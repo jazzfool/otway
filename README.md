@@ -159,6 +159,9 @@ impl<T: 'static> ViewPart<T> for Counter<T> {
     fn children_mut(&mut self) -> Vec<&mut dyn WidgetChildren<T>> {
         vec![&mut self.incr, &mut self.label]
     }
+
+    // alternatively:
+//  otway::children![for <T>; incr, label];
 }
 
 fn counter<T: 'static>(p: CommonRef, a: &mut ui::Aux<T>) -> PartialView<T, Counter<T>> {

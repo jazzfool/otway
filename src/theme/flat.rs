@@ -501,7 +501,7 @@ impl<T: 'static> TypedPainter<T> for ComboListPainter {
         out.build()
     }
 
-    fn size_hint(&mut self, obj: &mut Self::Object) -> gfx::Size {
+    fn size_hint(&mut self, _obj: &mut Self::Object) -> gfx::Size {
         Default::default()
     }
 }
@@ -513,11 +513,15 @@ struct ComboListItemPainter {
 impl<T: 'static> TypedPainter<T> for ComboListItemPainter {
     type Object = kit::ComboListItem<T>;
 
-    fn paint(&mut self, obj: &mut Self::Object, aux: &mut ui::Aux<T>) -> Vec<gfx::DisplayCommand> {
+    fn paint(
+        &mut self,
+        _obj: &mut Self::Object,
+        _aux: &mut ui::Aux<T>,
+    ) -> Vec<gfx::DisplayCommand> {
         Default::default()
     }
 
-    fn size_hint(&mut self, obj: &mut Self::Object) -> gfx::Size {
+    fn size_hint(&mut self, _obj: &mut Self::Object) -> gfx::Size {
         Default::default()
     }
 }

@@ -9,7 +9,8 @@ pub struct Label<T: 'static> {
     size: f32,
     max_width: Option<f32>,
     color: gfx::Color,
-    painter: theme::Painter<Self, T>,
+
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
 }
 

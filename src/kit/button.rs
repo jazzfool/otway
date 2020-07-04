@@ -8,23 +8,15 @@ pub struct Button<T: 'static> {
     label: kit::Label<T>,
     alignment: ui::layout::Alignment,
 
-    painter: theme::Painter<Self, T>,
+    painter: theme::Painter<Self>,
     common: ui::CommonRef,
-    listeners: ui::ListenerList<kit::ReadWrite<Self, T>>,
+    listeners: ui::ListenerList<kit::ReadWrite<Self>>,
+    components: ui::ComponentList<Self>,
 }
 
 impl<T: 'static> Button<T> {
     pub fn new(parent: ui::CommonRef, aux: &mut ui::Aux<T>) -> Self {
         let common = ui::CommonRef::new(parent);
-
-        common.with(|x| {
-            x.push_component::<Self, _, _>(kit::InteractionState::new(
-                aux,
-                kit::interaction_forwarder(None),
-                None,
-                None,
-            ));
-        });
 
         let focus_listener = kit::focus_handler(
             aux,
@@ -38,9 +30,17 @@ impl<T: 'static> Button<T> {
         Button {
             label: kit::Label::new(common.clone(), aux),
             alignment: aux.theme.standards().button_text_alignment,
+
             painter: theme::get_painter(aux.theme.as_ref(), theme::painters::BUTTON),
             common,
             listeners: ui::ListenerList::new(vec![focus_listener]),
+
+            components: ui::ComponentList::new().and_push(kit::InteractionState::new(
+                aux,
+                kit::interaction_forwarder(None),
+                None,
+                None,
+            )),
         }
     }
 
@@ -91,8 +91,8 @@ impl<T: 'static> ui::Element for Button<T> {
 
     #[inline]
     fn update(&mut self, aux: &mut ui::Aux<T>) {
-        ui::dispatch_components(self, aux);
-        ui::dispatch_list::<kit::ReadWrite<Self, T>, _>((self, aux), |(x, _)| &mut x.listeners);
+        ui::dispatch_components(self, aux, |x| &mut x.components).unwrap();
+        ui::dispatch_list::<kit::ReadWrite<Self>, _>((self, aux), |(x, _)| &mut x.listeners);
 
         ui::propagate_repaint(self);
     }

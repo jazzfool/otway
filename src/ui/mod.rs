@@ -198,13 +198,20 @@ pub fn dispatch<'a, T: for<'b> uniq::Unpackable<'b> + 'static>(
     }
 }
 
-pub fn dispatch_components<T: 'static>(o: &mut impl WidgetChildren<T>, aux: &mut Aux<T>) {
-    let common = o.common().clone();
-    common.with(move |x| {
-        for component in x.components.values_mut() {
-            component.dispatch(o, aux);
-        }
-    });
+pub fn dispatch_components<W: WidgetChildren<T>, T: 'static>(
+    o: &mut W,
+    aux: &mut Aux<T>,
+    mut f: impl FnMut(&mut W) -> &mut ComponentList<W>,
+) -> Result<(), ComponentError> {
+    let mut components = f(o)
+        .components
+        .take()
+        .ok_or(ComponentError::UpdateInProgress)?;
+    for c in components.values_mut() {
+        c.dispatch(o, aux);
+    }
+    f(o).components = Some(components);
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -635,9 +642,9 @@ impl Default for FocusMode {
     }
 }
 
-pub trait Component: 'static {
+pub trait Component: DispatchableComponent + 'static {
     type Type: 'static;
-    type Object: WidgetChildren<Self::Type>;
+    type Object: Element<Aux = Self::Type>;
 
     fn update(&mut self, obj: &mut Self::Object, aux: &mut Aux<Self::Type>);
 }
@@ -658,6 +665,72 @@ impl<O: WidgetChildren<T>, T: 'static, C: Component<Type = T, Object = O>> Dispa
             aux.downcast_mut::<Aux<T>>()
                 .expect("dispatched components with incorrect auxiliary"),
         )
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ComponentError {
+    #[error("A component update is in progress")]
+    UpdateInProgress,
+    #[error("Component type does not exist for this widget")]
+    MissingComponent,
+}
+
+pub struct ComponentList<E: 'static + ?Sized + Element> {
+    components: Option<HashMap<std::any::TypeId, Box<dyn DispatchableComponent>>>,
+    _spooky: std::marker::PhantomData<E>,
+}
+
+impl<E: Element> ComponentList<E> {
+    pub fn new() -> Self {
+        ComponentList {
+            components: Some(HashMap::new()),
+            _spooky: Default::default(),
+        }
+    }
+
+    pub fn push<C: Component<Object = E, Type = E::Aux>>(
+        &mut self,
+        component: C,
+    ) -> Result<(), ComponentError> {
+        self.components
+            .as_mut()
+            .ok_or(ComponentError::UpdateInProgress)?
+            .insert(std::any::TypeId::of::<C>(), Box::new(component));
+        Ok(())
+    }
+
+    pub fn and_push<C: Component<Object = E, Type = E::Aux>>(mut self, component: C) -> Self {
+        self.push(component).unwrap();
+        self
+    }
+
+    pub fn get<C: Component<Object = E, Type = E::Aux>>(&self) -> Result<&C, ComponentError> {
+        use as_any::Downcast;
+        Ok(self
+            .components
+            .as_ref()
+            .ok_or(ComponentError::UpdateInProgress)?
+            .get(&std::any::TypeId::of::<C>())
+            .ok_or(ComponentError::MissingComponent)?
+            .as_ref()
+            .downcast_ref::<C>()
+            .unwrap())
+    }
+
+    pub fn get_mut<C: Component<Object = E, Type = E::Aux>>(
+        &mut self,
+    ) -> Result<&mut C, ComponentError> {
+        use as_any::Downcast;
+        Ok(self
+            .components
+            .as_mut()
+            .ok_or(ComponentError::UpdateInProgress)?
+            .get_mut(&std::any::TypeId::of::<C>())
+            .ok_or(ComponentError::MissingComponent)?
+            .as_mut()
+            .downcast_mut::<C>()
+            .unwrap())
     }
 }
 
@@ -703,7 +776,6 @@ pub struct Common {
     id: u64,
     info: Option<Box<dyn std::any::Any>>,
     should_detach: bool,
-    components: HashMap<std::any::TypeId, Box<dyn DispatchableComponent>>,
 }
 
 impl Common {
@@ -732,7 +804,6 @@ impl Common {
             id: uniq::id::next(),
             info: info.into(),
             should_detach: false,
-            components: HashMap::new(),
         }
     }
 
@@ -934,38 +1005,6 @@ impl Common {
         self.should_detach
     }
 
-    pub fn push_component<
-        O: WidgetChildren<T>,
-        C: Component<Object = O, Type = T> + DispatchableComponent,
-        T: 'static,
-    >(
-        &mut self,
-        c: C,
-    ) {
-        let id = std::any::TypeId::of::<C>();
-        if !self.components.contains_key(&id) {
-            self.components.insert(id, Box::new(c));
-        }
-    }
-
-    pub fn component<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static>(
-        &self,
-    ) -> Option<&C> {
-        use as_any::Downcast;
-        self.components
-            .get(&std::any::TypeId::of::<C>())
-            .and_then(|x| x.downcast_ref::<C>())
-    }
-
-    pub fn component_mut<C: Component<Object = O, Type = T>, O: WidgetChildren<T>, T: 'static>(
-        &mut self,
-    ) -> Option<&mut C> {
-        use as_any::Downcast;
-        self.components
-            .get_mut(&std::any::TypeId::of::<C>())
-            .and_then(|x| x.downcast_mut::<C>())
-    }
-
     fn update_layout_size(&mut self) {
         let size = self.size();
         let mut layout_size = None;
@@ -1142,6 +1181,7 @@ fn visit_mut_impl<T: 'static, W: Element<Aux = T> + 'static>(
     false
 }
 
+/// Mutable variant of [`visit`](visit).
 pub fn visit_mut<T: 'static, W: Element<Aux = T> + 'static>(
     root: &mut dyn WidgetChildren<T>,
     mut visitor: impl FnMut(&mut W),
@@ -1172,6 +1212,17 @@ fn visit_impl<T: 'static, W: Element<Aux = T> + 'static>(
     false
 }
 
+/// Visits every widget in a given mutable tree/branch (root) and will invoke the function if the widget
+/// type matches `W`.
+///
+/// For example, changing the font size of all labels:
+/// ```rust
+/// visit_mut(root, |label: &mut Label<T>| {
+///     label.set_size(42.0);
+/// }, VisitorBreakpoint::Never);
+/// ```
+///
+/// The `breakpoint` parameter specifies when the visitor should break off or stop completely, if at all.
 pub fn visit<T: 'static, W: Element<Aux = T> + 'static>(
     root: &dyn WidgetChildren<T>,
     mut visitor: impl FnMut(&W),
@@ -1388,40 +1439,6 @@ pub trait ElementMixin: Element {
     #[inline]
     fn is_marked_for_detach(&self) -> bool {
         self.common().with(|x| x.is_marked_for_detach())
-    }
-
-    #[inline]
-    fn push_component<C: Component<Object = Self, Type = T> + DispatchableComponent, T: 'static>(
-        &mut self,
-        c: C,
-    ) where
-        Self: WidgetChildren<T> + Sized,
-    {
-        self.common().with(|x| x.push_component::<Self, C, T>(c));
-    }
-
-    #[inline]
-    fn with_component<C: Component<Object = Self, Type = T>, T: 'static, R>(
-        &self,
-        f: impl FnOnce(&C) -> R,
-    ) -> Option<R>
-    where
-        Self: WidgetChildren<T> + Sized,
-    {
-        self.common()
-            .with(|x| x.component::<C, Self, T>().map(|x| f(x)))
-    }
-
-    #[inline]
-    fn with_component_mut<C: Component<Object = Self, Type = T>, T: 'static, R>(
-        &self,
-        f: impl FnOnce(&mut C) -> R,
-    ) -> Option<R>
-    where
-        Self: WidgetChildren<T> + Sized,
-    {
-        self.common()
-            .with(|x| x.component_mut::<C, Self, T>().map(|x| f(x)))
     }
 }
 
