@@ -133,14 +133,16 @@ pub fn run<T: 'static, W: ui::WidgetChildren<AppData<T>>>(
         .build_windowed(wb, &el)?;
     let ctxt = unsafe { ctxt.make_current().map_err(|(_, e)| e)? };
     let mut scale_factor = ctxt.window().scale_factor();
-    let mut display =
-        gfx::skia::SkiaGraphicsDisplay::new_gl_framebuffer(&gfx::skia::SkiaOpenGlFramebuffer {
+    let mut display = gfx::skia::SkiaGraphicsDisplay::new_gl_framebuffer(
+        |s| ctxt.get_proc_address(s),
+        &gfx::skia::SkiaOpenGlFramebuffer {
             framebuffer_id: 0,
             size: (
                 options.window_size.width as _,
                 options.window_size.height as _,
             ),
-        })?;
+        },
+    )?;
     let central_widget = ui::CommonRef::new(None);
     let mut aux = ui::Aux {
         data: AppData {
